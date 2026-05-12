@@ -9,9 +9,13 @@ from .agents.types import AgentSpec, RunResult
 from .config import get_settings
 from .store import connect
 from .voice.brain import Brain, ClaudeBrain
+from .voice.session import VoiceSession
+from .voice.stt import STT, FakeSTT, WhisperSTT
+from .voice.tts import TTS, ElevenLabsTTS, PiperFallbackTTS
 
 _conn: sqlite3.Connection | None = None
 _agents: AgentManager | None = None
+_session_factory: "callable[[], VoiceSession] | None" = None
 
 
 def get_db() -> sqlite3.Connection:
@@ -76,3 +80,51 @@ def get_agents() -> AgentManager:
 def set_agents(mgr: AgentManager | None) -> None:
     global _agents
     _agents = mgr
+
+
+def _build_stt() -> STT:
+    s = get_settings()
+    return WhisperSTT(model=s.whisper_model)
+
+
+def _build_tts() -> TTS:
+    s = get_settings()
+    if not s.elevenlabs_api_key:
+        return PiperFallbackTTS()
+    return ElevenLabsTTS(
+        api_key=s.elevenlabs_api_key, voice_id=s.elevenlabs_voice_id
+    )
+
+
+def _build_brain() -> Brain | None:
+    s = get_settings()
+    if not s.anthropic_api_key:
+        return None
+    client = _build_anthropic_client(s.anthropic_api_key)
+    if client is None:
+        return None
+    return ClaudeBrain(
+        api_key=s.anthropic_api_key,
+        model=s.brain_model_hot,
+        client=client,
+        system=(
+            "You are Vector, Jason's local voice assistant. "
+            "Reply in one or two sentences unless asked for more."
+        ),
+    )
+
+
+def new_voice_session() -> VoiceSession:
+    if _session_factory is not None:
+        return _session_factory()
+    brain = _build_brain()
+    if brain is None:
+        from .voice.brain import FakeBrain
+
+        brain = FakeBrain([])
+    return VoiceSession(stt=_build_stt(), brain=brain, tts=_build_tts())
+
+
+def set_session_factory(factory: "callable[[], VoiceSession] | None") -> None:
+    global _session_factory
+    _session_factory = factory

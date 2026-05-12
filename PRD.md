@@ -455,6 +455,15 @@ All metrics live in SQLite. Dashboard in SvelteKit at /metrics. Vector reads the
 - Stratus share dashboard
 - Weekly mission brief
 
+### Phase 7: Live Voice Loop + Webhooks (Weeks 13–14)
+
+- Wake-word detection ("Vector") via Picovoice or openWakeWord
+- Whisper STT real binding (whisper.cpp)
+- Voice session orchestrator: idle → wake → listen → think → speak → idle
+- WebSocket `/voice/stream` for mic-in + audio-out + state transitions
+- Barge-in (frontend signals mic activity; backend cancels in-flight TTS)
+- Linear webhook receiver with HMAC-SHA256 signature verification
+
 ---
 
 ## 17. Success Metrics

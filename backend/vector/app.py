@@ -3,15 +3,28 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException, status
+import asyncio
+import json
+
+from fastapi import (
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from . import audit
 from .agents.types import AgentSpec, AgentType, RunStatus
 from .auth import require_bearer
+from .voice.session import VoiceEvent, VoiceState
 from .config import get_settings
-from .deps import get_agents, get_db
+from .deps import get_agents, get_db, new_voice_session
 from .engine import brief as brief_mod
 from .engine import mission as mission_eng
 from .engine import picker, review
@@ -21,6 +34,7 @@ from .store import tasks as tasks_repo
 from .tools.builder import build_default_registry
 from .tools.errors import NeedsConfirm, ToolDenied, ToolError
 from .tools.files import FileGuard
+from .webhooks import handle_linear_event, verify_linear_signature
 from .tools.registry import Registry
 
 GREETING_USER = "Jason"
@@ -89,6 +103,76 @@ def _greeting_for(now: datetime) -> str:
 @app.get("/voice/greeting")
 def greeting() -> dict:
     return {"text": _greeting_for(datetime.now()), "user": GREETING_USER}
+
+
+def _event_to_json(e: VoiceEvent) -> dict:
+    return {
+        "kind": e.kind,
+        "state": e.state.value if isinstance(e.state, VoiceState) else None,
+        "text": e.text,
+        "error": e.error,
+    }
+
+
+@app.websocket("/voice/stream")
+async def voice_stream(ws: WebSocket) -> None:
+    await ws.accept()
+    session = new_voice_session()
+    mic_queue: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=64)
+
+    async def mic_iter():
+        while True:
+            item = await mic_queue.get()
+            if item is None:
+                return
+            yield item
+
+    async def pump_in() -> None:
+        try:
+            while True:
+                msg = await ws.receive()
+                if msg["type"] == "websocket.disconnect":
+                    await mic_queue.put(None)
+                    return
+                if "bytes" in msg and msg["bytes"] is not None:
+                    await mic_queue.put(msg["bytes"])
+                    continue
+                text = msg.get("text")
+                if not text:
+                    continue
+                try:
+                    data = json.loads(text)
+                except json.JSONDecodeError:
+                    continue
+                kind = data.get("type")
+                if kind == "end":
+                    await mic_queue.put(None)
+                    return
+                if kind == "barge_in":
+                    session.barge_in()
+        except WebSocketDisconnect:
+            await mic_queue.put(None)
+
+    pump_task = asyncio.create_task(pump_in())
+    try:
+        async for event in session.turn(mic_iter()):
+            if event.kind == "audio" and event.audio is not None:
+                await ws.send_bytes(event.audio)
+            else:
+                await ws.send_json(_event_to_json(event))
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await mic_queue.put(None)
+        pump_task.cancel()
+        try:
+            await pump_task
+        except (asyncio.CancelledError, Exception):
+            pass
+        try:
+            await ws.close()
+        except RuntimeError:
+            pass
 
 
 @app.get("/tools")
@@ -393,3 +477,28 @@ def weekly_brief() -> dict:
         "choke_points": summary.choke_points,
         "deltas": summary.metric_deltas,
     }
+
+
+@app.post("/webhooks/linear")
+async def linear_webhook(
+    request: Request,
+    linear_signature: str | None = Header(default=None, alias="Linear-Signature"),
+) -> dict:
+    secret = get_settings().linear_webhook_secret
+    if not secret:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "webhook not configured")
+    body = await request.body()
+    try:
+        verify_linear_signature(body, signature=linear_signature, secret=secret)
+    except ValueError as e:
+        audit.record(
+            "linear.webhook", "linear", {}, {"reason": str(e)}, ok=False
+        )
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(e)) from e
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "bad json") from e
+    result = handle_linear_event(get_db(), payload)
+    audit.record("linear.webhook", "linear", {"action": payload.get("action")}, result, ok=result.get("ok", False))
+    return result
