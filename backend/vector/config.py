@@ -9,8 +9,8 @@ SECRET_FIELDS = frozenset(
     {
         "anthropic_api_key",
         "elevenlabs_api_key",
-        "deepgram_api_key",
         "backend_bearer",
+        "linear_api_key",
     }
 )
 
@@ -27,10 +27,10 @@ class Settings(BaseSettings):
 
     anthropic_api_key: str = ""
     elevenlabs_api_key: str = ""
-    deepgram_api_key: str = ""
     backend_bearer: str = ""
     elevenlabs_voice_id: str = "default"
     linear_api_key: str = ""
+    whisper_model: str = "small.en"
 
     brain_model_hot: str = "claude-sonnet-4-6"
     brain_model_hard: str = "claude-opus-4-7"

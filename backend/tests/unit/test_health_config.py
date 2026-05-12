@@ -37,7 +37,7 @@ def test_config_get_returns_no_plaintext_secrets():
     r = client.get("/config")
     assert r.status_code == 200
     body = r.json()
-    for key in ("anthropic_api_key", "elevenlabs_api_key", "deepgram_api_key"):
+    for key in ("anthropic_api_key", "elevenlabs_api_key"):
         assert body[key] in ("", "***redacted***")
 
 

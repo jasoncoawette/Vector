@@ -9,8 +9,14 @@ class STT(Protocol):
 
 
 class WhisperSTT:
-    def __init__(self, model_path: str = "whisper-small") -> None:
-        self.model_path = model_path
+    """Local-only STT via whisper.cpp. Audio bytes never leave the laptop.
+
+    The real binding (e.g. pywhispercpp) is wired at app boot; this
+    keeps the interface in place for the loop and the tests.
+    """
+
+    def __init__(self, model: str = "small.en") -> None:
+        self.model = model
 
     async def transcribe(self, audio: bytes) -> str:
         return ""

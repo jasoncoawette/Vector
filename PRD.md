@@ -83,7 +83,7 @@ Single user: Jason.
 ### 7.1 Voice Interface
 
 - Wake word: "Vector"
-- Speech in: local Whisper or Deepgram
+- Speech in: local Whisper (whisper.cpp)
 - Speech out: ElevenLabs
 - Push to talk fallback
 - Mute toggle
@@ -181,7 +181,7 @@ Why: lets Jason check Vector during commutes and meetings. Lets the build be tes
 - **Frontend:** SvelteKit + Three.js avatar (port 5173 in dev)
 - **Desktop shell:** Tauri (smaller than Electron)
 - **Backend:** Python FastAPI service on port 7777
-- **STT:** Whisper local (whisper.cpp) or Deepgram cloud
+- **STT:** Whisper local (whisper.cpp). Audio never leaves the laptop.
 - **TTS:** ElevenLabs streaming
 - **Brain:** Claude Sonnet 4.6 for hot path. Claude Opus 4.7 for hard plans.
 - **Tools:** Custom MCP servers for Linear and Gmail and files and browser
