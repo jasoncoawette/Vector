@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import dataclass
 
 from ..hooks import HookRegistry, get_hooks
 from .types import (
@@ -13,16 +12,6 @@ from .types import (
     RunStatus,
     make_run_id,
 )
-
-
-class OverCostCap(Exception):
-    """Executor signals it would exceed the per-run cost cap."""
-
-
-@dataclass
-class _Reservation:
-    run_id: str
-    files: frozenset[str]
 
 
 class AgentManager:
@@ -45,7 +34,6 @@ class AgentManager:
         self._hooks = hooks or get_hooks()
         self._runs: dict[str, Run] = {}
         self._busy_files: set[str] = set()
-        self._lock = asyncio.Lock()
         self._slot = asyncio.Condition()
         self._running = 0
         self._paused = False
@@ -198,10 +186,6 @@ class AgentManager:
         except asyncio.TimeoutError:
             run.status = RunStatus.FAILED
             run.error = f"timeout after {run.spec.timeout_s}s"
-            run.ended_at = time.time()
-        except OverCostCap as e:
-            run.status = RunStatus.NEEDS_CONFIRM
-            run.error = str(e)
             run.ended_at = time.time()
         except Exception as e:
             run.status = RunStatus.FAILED

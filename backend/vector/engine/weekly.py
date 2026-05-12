@@ -34,11 +34,9 @@ def _week_iso(now: datetime) -> str:
 def _count_picks(conn: sqlite3.Connection, start: float, end: float) -> tuple[int, int]:
     rows = conn.execute(
         """
-        SELECT p.task_id, t.status FROM picks p
+        SELECT t.status FROM picks p
         JOIN tasks t ON p.task_id = t.id
-        WHERE p.id IN (
-            SELECT id FROM picks WHERE day BETWEEN ? AND ?
-        )
+        WHERE p.day BETWEEN ? AND ?
         """,
         (
             datetime.fromtimestamp(start).date().isoformat(),

@@ -34,6 +34,7 @@ from .store import tasks as tasks_repo
 from .tools.builder import build_default_registry
 from .tools.errors import NeedsConfirm, ToolDenied, ToolError
 from .tools.files import FileGuard
+from .voice.routing_stats import per_tier_summary, recent_decisions
 from .webhooks import handle_linear_event, verify_linear_signature
 from .tools.registry import Registry
 
@@ -573,8 +574,6 @@ async def linear_webhook(
 
 @app.get("/routing/stats")
 def routing_stats() -> dict:
-    from .voice.routing_stats import per_tier_summary
-
     return {
         "tiers": [
             {
@@ -597,6 +596,4 @@ def routing_stats() -> dict:
 
 @app.get("/routing/log")
 def routing_log(limit: int = 100) -> dict:
-    from .voice.routing_stats import recent_decisions
-
     return {"entries": recent_decisions(get_db(), limit=limit)}

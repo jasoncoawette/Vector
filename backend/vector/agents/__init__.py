@@ -1,4 +1,4 @@
-from .manager import AgentManager, OverCostCap
+from .manager import AgentManager
 from .types import AgentSpec, AgentType, Run, RunResult, RunStatus
 
 __all__ = [
@@ -8,5 +8,4 @@ __all__ = [
     "Run",
     "RunResult",
     "RunStatus",
-    "OverCostCap",
 ]

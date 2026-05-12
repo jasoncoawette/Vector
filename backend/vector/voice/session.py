@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import AsyncIterator, Awaitable, Callable
+from typing import AsyncIterator
 
 from .brain import Brain
 from .loop import run_turn
@@ -29,15 +28,15 @@ class VoiceEvent:
     error: str | None = None
 
 
-SpeechReady = Callable[[], Awaitable[bool]]
-
-
 @dataclass
 class VoiceSession:
     """One turn from wake-fired through TTS-complete.
 
     The orchestrator owns transitions; the WebSocket adapter pipes events
     to the frontend and barge-in signals back in.
+
+    Not safe for concurrent `turn()` calls on the same instance; the
+    WebSocket adapter builds a fresh session per connection.
     """
 
     stt: STT
@@ -48,17 +47,15 @@ class VoiceSession:
 
     _state: VoiceState = field(default=VoiceState.IDLE, init=False)
     _barge_in: asyncio.Event = field(default_factory=asyncio.Event, init=False)
-    _speak_task: asyncio.Task | None = field(default=None, init=False)
 
     @property
     def state(self) -> VoiceState:
         return self._state
 
     def barge_in(self) -> None:
-        """Frontend signals that the user has started speaking again."""
+        """Signal that the user has started speaking again. The TTS
+        streaming loop polls this between chunks and stops cleanly."""
         self._barge_in.set()
-        if self._speak_task is not None and not self._speak_task.done():
-            self._speak_task.cancel()
 
     async def turn(
         self, mic_chunks: AsyncIterator[bytes]
