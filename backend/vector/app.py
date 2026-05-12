@@ -567,3 +567,34 @@ async def linear_webhook(
     result = handle_linear_event(get_db(), payload)
     audit.record("linear.webhook", "linear", {"action": payload.get("action")}, result, ok=result.get("ok", False))
     return result
+
+
+@app.get("/routing/stats")
+def routing_stats() -> dict:
+    from .voice.routing_stats import per_tier_summary
+
+    return {
+        "tiers": [
+            {
+                "tier": s.tier,
+                "decisions": s.decisions,
+                "successes": s.successes,
+                "failures": s.failures,
+                "pending": s.pending,
+                "mean_cost_usd": s.mean_cost_usd,
+                "success_rate": s.success_rate,
+                "alpha": s.alpha,
+                "beta": s.beta,
+                "trials": s.trials,
+                "mean_reward": s.mean_reward,
+            }
+            for s in per_tier_summary(get_db())
+        ]
+    }
+
+
+@app.get("/routing/log")
+def routing_log(limit: int = 100) -> dict:
+    from .voice.routing_stats import recent_decisions
+
+    return {"entries": recent_decisions(get_db(), limit=limit)}

@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     max_parallel_agents: int = 3
     turn_timeout_s: int = 30
     loop_call_cap: int = 5
+    auto_security_review: bool = True
 
     safe_browser_hosts: tuple[str, ...] = Field(
         default=(

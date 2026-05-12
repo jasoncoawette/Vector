@@ -7,14 +7,19 @@ from .agents import AgentManager
 from .agents.executor import SYSTEM_PROMPTS, ClaudeAgentExecutor
 from .agents.types import AgentSpec, RunResult
 from .config import get_settings
+from .memory import HashEmbedder, MemoryStore, SqliteMemoryStore
 from .store import connect
+from .tools.builder import build_registry_for
+from .tools.files import FileGuard
 from .voice.brain import Brain, ClaudeBrain
 from .voice.session import VoiceSession
-from .voice.stt import STT, FakeSTT, WhisperSTT
+from .voice.stt import STT, WhisperSTT
 from .voice.tts import TTS, ElevenLabsTTS, PiperFallbackTTS
 
 _conn: sqlite3.Connection | None = None
 _agents: AgentManager | None = None
+_memory: MemoryStore | None = None
+_file_guard: FileGuard | None = None
 _session_factory: "callable[[], VoiceSession] | None" = None
 
 
@@ -30,6 +35,35 @@ def get_db() -> sqlite3.Connection:
 def set_db(conn: sqlite3.Connection | None) -> None:
     global _conn
     _conn = conn
+
+
+def get_memory() -> MemoryStore:
+    global _memory
+    if _memory is None:
+        _memory = SqliteMemoryStore(get_db(), HashEmbedder())
+    return _memory
+
+
+def set_memory(store: MemoryStore | None) -> None:
+    global _memory
+    _memory = store
+
+
+def get_file_guard() -> FileGuard:
+    global _file_guard
+    if _file_guard is None:
+        s = get_settings()
+        _file_guard = FileGuard(read_root=s.workspace.parent, write_root=s.workspace)
+    return _file_guard
+
+
+def set_file_guard(guard: FileGuard | None) -> None:
+    global _file_guard
+    _file_guard = guard
+
+
+def _registry_factory(agent_type: str):
+    return build_registry_for(agent_type, guard=get_file_guard(), memory=get_memory())
 
 
 async def _placeholder_executor(spec: AgentSpec, prompt: str) -> RunResult:
@@ -74,7 +108,10 @@ def _build_real_executor() -> ClaudeAgentExecutor | None:
             system=SYSTEM_PROMPTS.get(agent_type, ""),
         )
 
-    return ClaudeAgentExecutor(brain_factory=factory, registry=None)
+    return ClaudeAgentExecutor(
+        brain_factory=factory,
+        registry_factory=_registry_factory,
+    )
 
 
 def get_agents() -> AgentManager:
@@ -83,6 +120,10 @@ def get_agents() -> AgentManager:
         s = get_settings()
         executor = _build_real_executor() or _placeholder_executor
         _agents = AgentManager(executor=executor, max_parallel=s.max_parallel_agents)
+        if s.auto_security_review:
+            from .agents.auto_security import register_auto_security
+
+            register_auto_security(_agents)
     return _agents
 
 

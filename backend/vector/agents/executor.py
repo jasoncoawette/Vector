@@ -45,13 +45,20 @@ class ClaudeAgentExecutor:
 
     brain_factory: callable
     registry: Registry | None = None
+    registry_factory: callable | None = None
     max_steps: int = MAX_STEPS
+
+    def _registry_for(self, agent_type: str) -> Registry | None:
+        if self.registry_factory is not None:
+            return self.registry_factory(agent_type)
+        return self.registry
 
     async def __call__(self, spec: AgentSpec, prompt: str) -> RunResult:
         try:
             brain: Brain = self.brain_factory(spec.type, prompt=prompt)
         except TypeError:
             brain = self.brain_factory(spec.type)
+        active_registry = self._registry_for(spec.type)
         history: list[dict] = []
         total_cost = 0.0
         final_text = ""
@@ -77,11 +84,11 @@ class ClaudeAgentExecutor:
                         meta={"aborted": "loop_detected", "steps": steps},
                     )
                 tool_output: str
-                if self.registry is None:
+                if active_registry is None:
                     tool_output = "[no registry]"
                 else:
                     try:
-                        result = self.registry.call(
+                        result = active_registry.call(
                             reply.tool_call["name"], reply.tool_call.get("args") or {}
                         )
                         tool_output = str(result)[:4000]

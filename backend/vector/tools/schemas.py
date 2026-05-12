@@ -16,3 +16,15 @@ class FileWriteArgs(BaseModel):
 class FileDeleteArgs(BaseModel):
     path: str = Field(min_length=1)
     confirm_token: str | None = None
+
+
+class MemorySearchArgs(BaseModel):
+    query: str = Field(min_length=1, max_length=2000)
+    kind: str | None = Field(default=None, max_length=64)
+    k: int = Field(default=5, ge=1, le=20)
+
+
+class MemoryAddArgs(BaseModel):
+    kind: str = Field(min_length=1, max_length=64)
+    text: str = Field(min_length=1, max_length=20_000)
+    meta: dict | None = None
