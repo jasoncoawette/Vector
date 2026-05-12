@@ -1,3 +1,19 @@
+<script lang="ts">
+  import type { VideoData } from '../api';
+
+  export let data: VideoData | null = null;
+
+  $: status = data?.status ?? 'LIVE';
+  $: camera = data?.camera ?? 'CAM-04';
+  $: elapsed = data?.elapsed ?? '04:22:18';
+  $: resolution = data?.resolution ?? '1080p';
+  $: fps = data?.fps ?? 30;
+  $: progress = data?.progress ?? 0.38;
+  $: elapsedShort = data?.elapsed_short ?? '01:42';
+  $: remaining = data?.remaining ?? '-02:48';
+  $: progressPct = `${Math.round(progress * 100)}%`;
+</script>
+
 <div class="frame">
   <div class="bg"></div>
   <svg width="100%" height="100%" class="grid">
@@ -8,14 +24,17 @@
     </defs>
     <rect width="100%" height="100%" fill="url(#vgp)"/>
   </svg>
-  <div class="tc mono">● LIVE · CAM-04 · 04:22:18</div>
-  <div class="tcR mono">1080p · 30fps</div>
+  <div class="tc mono">● {status} · {camera} · {elapsed}</div>
+  <div class="tcR mono">{resolution} · {fps}fps</div>
   <div class="play">
     <div class="circle"><div class="tri"></div></div>
   </div>
   <div class="scrub">
-    <div class="bar"><div class="fill"></div><div class="thumb"></div></div>
-    <div class="times mono"><span>01:42</span><span>−02:48</span></div>
+    <div class="bar">
+      <div class="fill" style="width: {progressPct};"></div>
+      <div class="thumb" style="left: {progressPct};"></div>
+    </div>
+    <div class="times mono"><span>{elapsedShort}</span><span>{remaining}</span></div>
   </div>
 </div>
 
@@ -47,10 +66,11 @@
   }
   .scrub { position: absolute; left: 12px; right: 12px; bottom: 12px; }
   .bar { height: 3px; background: rgba(255,255,255,0.12); border-radius: 2px; position: relative; }
-  .fill { height: 100%; width: 38%; background: var(--vec); border-radius: 2px; }
+  .fill { height: 100%; background: var(--vec); border-radius: 2px; }
   .thumb {
-    position: absolute; left: 38%; top: -3px;
+    position: absolute; top: -3px;
     width: 9px; height: 9px; border-radius: 99px; background: var(--vec);
+    transform: translateX(-50%);
   }
   .times { display: flex; justify-content: space-between; margin-top: 4px; font-size: 9px; color: var(--ink-3); }
 </style>

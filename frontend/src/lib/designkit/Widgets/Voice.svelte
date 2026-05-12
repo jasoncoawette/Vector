@@ -1,5 +1,11 @@
 <script lang="ts">
   import Waveform from '../Charts/Waveform.svelte';
+  import type { VoiceData } from '../api';
+
+  export let data: VoiceData | null = null;
+
+  $: status = data?.status ?? 'LISTENING · 0:14';
+  $: transcript = data?.transcript ?? 'remind me to follow up with the architect about the kitchen...';
 </script>
 
 <div class="wrap">
@@ -8,10 +14,10 @@
       <span class="halo"></span>
       <span class="orb"></span>
     </div>
-    <span class="mono status">LISTENING · 0:14</span>
+    <span class="mono status">{status}</span>
   </div>
   <Waveform w={300} h={36}/>
-  <div class="mono cap">"remind me to follow up with the architect about the kitchen…"</div>
+  <div class="mono cap">"{transcript}"</div>
 </div>
 
 <style>

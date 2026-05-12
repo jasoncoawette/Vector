@@ -1,20 +1,26 @@
 <script lang="ts">
   import Badge from '../Primitives/Badge.svelte';
-  const list = [
-    { d: true,  l: "Send pricing v4 to legal", m: 'Drafted by Vector' },
-    { d: false, l: "Review Anya's onboarding",  m: 'Due 17:00', flag: 'warn' },
-    { d: false, l: 'Approve Q2 spend',          m: '3 line items' },
-    { d: false, l: 'Reply to investor intro',   m: '2 days idle', flag: 'crit' }
+  import type { TasksData } from '../api';
+
+  export let data: TasksData | null = null;
+
+  const fallback = [
+    { done: true,  label: 'Send pricing v4 to legal',   meta: 'Drafted by Vector' },
+    { done: false, label: "Review Anya's onboarding",   meta: 'Due 17:00', flag: 'warn' as const },
+    { done: false, label: 'Approve Q2 spend',           meta: '3 line items' },
+    { done: false, label: 'Reply to investor intro',    meta: '2 days idle', flag: 'crit' as const }
   ];
+
+  $: list = data?.items?.length ? data.items : fallback;
 </script>
 
 <div class="wrap">
   {#each list as t, i}
     <div class="row" class:last={i === list.length - 1}>
-      <div class="check" class:on={t.d}>{t.d ? '✓' : ''}</div>
+      <div class="check" class:on={t.done}>{t.done ? '✓' : ''}</div>
       <div class="text">
-        <div class="lbl" class:done={t.d}>{t.l}</div>
-        <div class="meta mono">{t.m}</div>
+        <div class="lbl" class:done={t.done}>{t.label}</div>
+        <div class="meta mono">{t.meta}</div>
       </div>
       {#if t.flag}
         <Badge color={`var(--${t.flag})`}>{t.flag === 'crit' ? 'OVERDUE' : 'TODAY'}</Badge>

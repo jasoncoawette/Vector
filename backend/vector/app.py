@@ -22,6 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from . import audit
+from . import mocks as designkit_mocks
 from .agents.types import AgentSpec, AgentType, RunStatus
 from .auth import check_ws_bearer, require_bearer
 from .store import events as events_store
@@ -46,6 +47,7 @@ from pathlib import Path as _Path
 GREETING_USER = "Jason"
 
 app = FastAPI(title="Vector", version="0.1.0")
+app.include_router(designkit_mocks.router)
 
 
 def _cors_origins() -> list[str]:
@@ -79,6 +81,7 @@ def _on_start() -> None:
     from . import logging_setup
 
     logging_setup.configure()
+    designkit_mocks.ensure_all_seeds()
     db = get_db()
     audit.set_sink(db)
 

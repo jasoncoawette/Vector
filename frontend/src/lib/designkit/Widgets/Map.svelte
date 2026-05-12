@@ -1,9 +1,18 @@
 <script lang="ts">
-  const markers: [number, number, string, string][] = [
-    [120, 90, 'var(--vec)', 'HOME'],
-    [200, 70, 'var(--ok)', 'OFFICE'],
-    [260, 110, 'var(--warn)', 'GYM']
+  import type { MapData } from '../api';
+
+  export let data: MapData | null = null;
+
+  const fallbackMarkers = [
+    { x: 120, y: 90, color: 'var(--vec)', label: 'HOME' },
+    { x: 200, y: 70, color: 'var(--ok)', label: 'OFFICE' },
+    { x: 260, y: 110, color: 'var(--warn)', label: 'GYM' }
   ];
+
+  $: markers = data?.markers?.length ? data.markers : fallbackMarkers;
+  $: lat = data?.center?.lat ?? 37.7749;
+  $: lon = data?.center?.lon ?? -122.4194;
+  $: coord = `${Math.abs(lat).toFixed(4)}° ${lat >= 0 ? 'N' : 'S'} · ${Math.abs(lon).toFixed(4)}° ${lon >= 0 ? 'E' : 'W'}`;
 </script>
 
 <div class="wrap">
@@ -18,13 +27,13 @@
       fill="rgba(184,216,255,0.04)" stroke="rgba(184,216,255,0.18)" stroke-width="0.7"/>
     <path d="M 40 40 Q 100 30 160 50 T 280 60" fill="none"
       stroke="rgba(184,216,255,0.12)" stroke-width="0.5" stroke-dasharray="2 3"/>
-    {#each markers as [x, y, c, l]}
-      <circle cx={x} cy={y} r="10" fill={c} opacity="0.12"/>
-      <circle cx={x} cy={y} r="3" fill={c}/>
-      <text x={x + 8} y={y + 3} font-family="JetBrains Mono" font-size="7" fill="var(--ink-2)" letter-spacing="1.5">{l}</text>
+    {#each markers as m}
+      <circle cx={m.x} cy={m.y} r="10" fill={m.color} opacity="0.12"/>
+      <circle cx={m.x} cy={m.y} r="3" fill={m.color}/>
+      <text x={m.x + 8} y={m.y + 3} font-family="JetBrains Mono" font-size="7" fill="var(--ink-2)" letter-spacing="1.5">{m.label}</text>
     {/each}
   </svg>
-  <div class="coord mono">37.7749° N · 122.4194° W</div>
+  <div class="coord mono">{coord}</div>
 </div>
 
 <style>

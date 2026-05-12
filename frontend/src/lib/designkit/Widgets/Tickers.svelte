@@ -1,6 +1,10 @@
 <script lang="ts">
   import Sparkline from '../Charts/Sparkline.svelte';
-  const list = [
+  import type { TickersData } from '../api';
+
+  export let data: TickersData | null = null;
+
+  const fallback = [
     { sym: 'SPX',  px: '5,872.4', ch: +0.42, spark: [12, 14, 16, 15, 18, 17, 19, 22, 21, 24, 23, 26] },
     { sym: 'NDX',  px: '20,114',  ch: +0.81, spark: [22, 20, 24, 26, 25, 28, 27, 30, 32, 31, 34, 38] },
     { sym: 'BTC',  px: '95,214',  ch: -1.24, spark: [28, 30, 29, 27, 26, 28, 24, 22, 23, 21, 19, 20] },
@@ -8,6 +12,8 @@
     { sym: 'VEC',  px: '142.86',  ch: +2.41, spark: [8, 10, 12, 11, 14, 17, 16, 19, 22, 24, 28, 30] },
     { sym: 'DXY',  px: '104.21',  ch: -0.12, spark: [20, 21, 21, 20, 19, 20, 19, 18, 19, 18, 17, 18] }
   ];
+
+  $: list = data?.items?.length ? data.items : fallback;
 </script>
 
 <div class="wrap">

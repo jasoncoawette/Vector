@@ -1,12 +1,12 @@
 <script lang="ts">
-  import '$lib/tokens.css';
+  import '$lib/designkit/tokens.css';
   import {
     VectorMark, ParticleField, LiveGrid,
-    Widget, Button, Badge, Input,
+    Widget, Button, Badge,
     Video, News, Market, Tickers, Weather, Clock, Calendar,
     Tasks, AgentLog, Vitals, Threat, Heat, Voice, Map,
     Waveform
-  } from '$lib';
+  } from '$lib/designkit';
 
   const initial = [
     { id: 'video',   x: 568, y: 16,  w: 360, h: 220, kind: 'video' },

@@ -1,10 +1,16 @@
 <script lang="ts">
-  const items = [
-    { src: 'REUTERS', t: 'Fed signals pause on rate cuts pending CPI', time: '4m', tag: 'MARKETS' },
-    { src: 'BLOOMBERG', t: 'Nvidia ships Blackwell ahead of schedule', time: '22m', tag: 'TECH' },
-    { src: 'AP', t: 'Senate advances AI safety reporting bill', time: '1h', tag: 'POLICY' },
-    { src: 'FT', t: 'Container freight rates fall 8% week-over-week', time: '3h', tag: 'GLOBAL' }
+  import type { NewsData } from '../api';
+
+  export let data: NewsData | null = null;
+
+  const fallback = [
+    { src: 'REUTERS', headline: 'Fed signals pause on rate cuts pending CPI', age: '4m', tag: 'MARKETS' },
+    { src: 'BLOOMBERG', headline: 'Nvidia ships Blackwell ahead of schedule', age: '22m', tag: 'TECH' },
+    { src: 'AP', headline: 'Senate advances AI safety reporting bill', age: '1h', tag: 'POLICY' },
+    { src: 'FT', headline: 'Container freight rates fall 8% week-over-week', age: '3h', tag: 'GLOBAL' }
   ];
+
+  $: items = data?.items?.length ? data.items : fallback;
 </script>
 
 <div class="feed">
@@ -12,8 +18,8 @@
     <div class="row" class:last={i === items.length - 1}>
       <span class="src mono">{n.src}</span>
       <div>
-        <div class="hl">{n.t}</div>
-        <div class="meta mono">{n.tag} · {n.time}</div>
+        <div class="hl">{n.headline}</div>
+        <div class="meta mono">{n.tag} · {n.age}</div>
       </div>
     </div>
   {/each}

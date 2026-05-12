@@ -1,9 +1,28 @@
+<script lang="ts">
+  import type { WeatherData } from '../api';
+
+  export let data: WeatherData | null = null;
+
+  const fallbackHours: { t: string; temp_f: number }[] = [
+    { t: 'NOW', temp_f: 62 }, { t: '11a', temp_f: 64 }, { t: '1p', temp_f: 67 },
+    { t: '3p', temp_f: 67 }, { t: '5p', temp_f: 64 }, { t: '7p', temp_f: 59 }
+  ];
+
+  $: location = data?.location ?? 'SAN FRANCISCO';
+  $: condition = data?.condition ?? 'CLEAR';
+  $: temp = data?.temp_f ?? 62;
+  $: high = data?.high_f ?? 68;
+  $: low = data?.low_f ?? 54;
+  $: feels = data?.feels_f ?? 60;
+  $: hours = data?.hourly?.length ? data.hourly : fallbackHours;
+</script>
+
 <div class="wrap">
   <div class="top">
     <div>
-      <div class="mono lbl">SAN FRANCISCO · CLEAR</div>
-      <div class="temp">62°</div>
-      <div class="meta">H 68° · L 54° · feels 60°</div>
+      <div class="mono lbl">{location} · {condition}</div>
+      <div class="temp">{temp}°</div>
+      <div class="meta">H {high}° · L {low}° · feels {feels}°</div>
     </div>
     <svg width="44" height="44" viewBox="0 0 24 24" fill="none">
       <circle cx="12" cy="12" r="4" stroke="var(--vec)" stroke-width="1.3"/>
@@ -18,10 +37,10 @@
     </svg>
   </div>
   <div class="hours">
-    {#each [['NOW', 62], ['11a', 64], ['1p', 67], ['3p', 67], ['5p', 64], ['7p', 59]] as [t, d]}
+    {#each hours as h}
       <div class="hr">
-        <div class="mono ht">{t}</div>
-        <div class="hd">{d}°</div>
+        <div class="mono ht">{h.t}</div>
+        <div class="hd">{h.temp_f}°</div>
       </div>
     {/each}
   </div>

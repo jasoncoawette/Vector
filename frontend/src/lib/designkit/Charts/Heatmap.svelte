@@ -5,6 +5,9 @@
   export let w: number = 320;
   export let h: number = 90;
   export let color: string = 'var(--vec)';
+  // Optional caller-supplied grid: number[rows][cols] in [0..1].
+  // When provided, overrides the seeded generator below.
+  export let grid: number[][] | null = null;
 
   function gen() {
     let r = seed;
@@ -15,9 +18,20 @@
         out.push({ x, y, v: Math.pow(rnd(), 1.4) });
     return out;
   }
-  $: cells = gen();
-  $: cw = w / cols;
-  $: ch = h / rows;
+
+  function fromGrid(g: number[][]): { x: number; y: number; v: number }[] {
+    const out: { x: number; y: number; v: number }[] = [];
+    for (let y = 0; y < g.length; y++)
+      for (let x = 0; x < g[y].length; x++)
+        out.push({ x, y, v: Math.min(1, Math.max(0, g[y][x])) });
+    return out;
+  }
+
+  $: cells = grid && grid.length ? fromGrid(grid) : gen();
+  $: effRows = grid && grid.length ? grid.length : rows;
+  $: effCols = grid && grid.length && grid[0] ? grid[0].length : cols;
+  $: cw = w / effCols;
+  $: ch = h / effRows;
 </script>
 
 <svg width={w} height={h}>

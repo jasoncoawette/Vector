@@ -1,17 +1,23 @@
 <script lang="ts">
-  const zones: [string, string][] = [
-    ['NEW YORK', '21:14'],
-    ['LONDON', '02:14'],
-    ['TOKYO', '11:14'],
-    ['SAN FRANCISCO', '18:14']
+  import type { ClockData } from '../api';
+
+  export let data: ClockData | null = null;
+
+  const fallback = [
+    { name: 'NEW YORK', time: '21:14' },
+    { name: 'LONDON', time: '02:14' },
+    { name: 'TOKYO', time: '11:14' },
+    { name: 'SAN FRANCISCO', time: '18:14' }
   ];
+
+  $: zones = data?.zones?.length ? data.zones : fallback;
 </script>
 
 <div class="wrap">
-  {#each zones as [n, t], i}
+  {#each zones as z, i}
     <div class="row" class:last={i === zones.length - 1}>
-      <span class="mono name">{n}</span>
-      <span class="mono time">{t}</span>
+      <span class="mono name">{z.name}</span>
+      <span class="mono time">{z.time}</span>
     </div>
   {/each}
 </div>

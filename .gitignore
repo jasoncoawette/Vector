@@ -5,3 +5,10 @@
 !.env.example
 .vscode
 .idea
+tmp-vector/
+node_modules/
+.svelte-kit/
+build/
+__pycache__/
+*.egg-info/
+.pytest_cache/

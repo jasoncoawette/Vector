@@ -1,19 +1,29 @@
 <script lang="ts">
   import Heatmap from '../Charts/Heatmap.svelte';
+  import type { HeatData } from '../api';
+
+  export let data: HeatData | null = null;
+
+  $: label = data?.label ?? 'ACTIVITY · 7×24';
+  $: title = data?.title ?? 'Deep-work density';
+  $: total = data?.total_hours ?? 52;
+  $: scaleMin = data?.scale_min ?? 0;
+  $: scaleMax = data?.scale_max ?? 8;
+  $: grid = data?.grid && data.grid.length ? data.grid : null;
 </script>
 
 <div class="wrap">
   <div class="head">
     <div>
-      <div class="mono lbl">ACTIVITY · 7×24</div>
-      <div class="ttl">Deep-work density</div>
+      <div class="mono lbl">{label}</div>
+      <div class="ttl">{title}</div>
     </div>
-    <span class="mono total">52h this week</span>
+    <span class="mono total">{total}h this week</span>
   </div>
-  <Heatmap w={300} h={90} color="var(--vec)"/>
+  <Heatmap w={300} h={90} color="var(--vec)" {grid}/>
   <div class="row mono">
     <span>MON · TUE · WED · THU · FRI · SAT · SUN</span>
-    <span>0 → 8h</span>
+    <span>{scaleMin} → {scaleMax}h</span>
   </div>
 </div>
 
