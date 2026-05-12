@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     workspace: Path = Path.home() / "VectorWorkspace"
     obsidian_vault: Path = Path.home() / "Obsidian" / "Stratus"
     build_hash: str = "dev"
+    # Extra CORS origins beyond the SvelteKit dev server, comma-separated.
+    # Example: "http://mac-mini.tail-scale.ts.net:5173,http://laptop.tail-scale.ts.net:5173"
+    cors_origins: str = ""
 
     anthropic_api_key: str = ""
     elevenlabs_api_key: str = ""
@@ -63,6 +66,10 @@ class Settings(BaseSettings):
             "dsip.dtic.mil",
         )
     )
+
+    def cors_extra(self) -> list[str]:
+        """Parsed `cors_origins` env var as a list of origin strings."""
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     def redacted(self) -> dict:
         data = self.model_dump()

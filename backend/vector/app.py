@@ -46,13 +46,29 @@ GREETING_USER = "Jason"
 
 app = FastAPI(title="Vector", version="0.1.0")
 
+
+def _cors_origins() -> list[str]:
+    """Resolve the CORS allowlist from settings.
+
+    Always includes the SvelteKit dev origin so `npm run dev` keeps
+    working. Extra origins from VECTOR_CORS_ORIGINS (comma-separated)
+    let a Tailscale-hosted MacBook hit the Mac mini backend by name."""
+    base = ["http://127.0.0.1:5173", "http://localhost:5173"]
+    base.extend(get_settings().cors_extra())
+    return base
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
+    allow_origins=_cors_origins(),
     allow_credentials=False,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["*"],
 )
+
+
+def _loopback_host(host: str) -> bool:
+    return host in ("127.0.0.1", "::1", "localhost", "")
 
 
 @app.on_event("startup")
@@ -64,6 +80,19 @@ def _on_start() -> None:
     logging_setup.configure()
     db = get_db()
     audit.set_sink(db)
+
+    # Tailscale / LAN deploy guard: if the backend isn't on loopback we
+    # need bearer auth, otherwise any host on the network can spawn agents
+    # or write tools. Loud warning at startup, not a hard refusal — local
+    # firewalls + Tailscale ACLs are a real defense too — but we want it
+    # plain in the log.
+    settings_now = get_settings()
+    if not _loopback_host(settings_now.host) and not settings_now.backend_bearer:
+        _logging.getLogger("vector.startup").error(
+            "vector is bound to a non-loopback host but VECTOR_BACKEND_BEARER is "
+            "unset; mutation endpoints will be open to anyone who can reach the port",
+            extra={"host": settings_now.host},
+        )
     # Crash recovery: any runs left in queued/running state belong to a
     # previous process that didn't shut down cleanly. Mark them as
     # interrupted so the /runs view shows the truth.
