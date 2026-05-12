@@ -1,0 +1,61 @@
+/* Vector — design tokens (SvelteKit) */
+:root {
+  --bg-0: #0a0b0d;
+  --bg-1: #101216;
+  --bg-2: #16181d;
+  --bg-3: #1c1f25;
+  --bg-4: #23272f;
+
+  --line: rgba(255, 255, 255, 0.06);
+  --line-strong: rgba(255, 255, 255, 0.12);
+  --hair: rgba(255, 255, 255, 0.04);
+
+  --ink-0: #f6f7f8;
+  --ink-1: #cfd2d8;
+  --ink-2: #8e929a;
+  --ink-3: #5d6168;
+  --ink-4: #34373d;
+
+  --vec: #b8d8ff;
+  --vec-2: #6c8aaa;
+  --vec-glow: rgba(184, 216, 255, 0.18);
+
+  --ok: #6fb38a;
+  --warn: #e2b170;
+  --crit: #d97a7a;
+  --gold: #c9bb88;
+  --mag: #a78fc4;
+
+  --font-sans: "Inter Tight", -apple-system, ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-display: "Inter Tight", -apple-system, ui-sans-serif, system-ui, sans-serif;
+
+  --r-xs: 4px;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 22px;
+}
+
+* { box-sizing: border-box; }
+html, body {
+  background: var(--bg-0);
+  color: var(--ink-0);
+  margin: 0;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.mono { font-family: var(--font-mono); letter-spacing: 0.02em; }
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 10px; letter-spacing: 0.28em; text-transform: uppercase; color: var(--ink-3);
+}
+.label {
+  font-family: var(--font-mono);
+  font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-2);
+}
+
+button { font-family: inherit; }
+input, textarea, select { font-family: inherit; color: inherit; }
