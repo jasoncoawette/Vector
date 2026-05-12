@@ -36,6 +36,7 @@ class AgentManager:
         max_parallel: int = 3,
         hooks: HookRegistry | None = None,
         verifier: Verifier | None = None,
+        persist: "callable[[dict, float | None], None] | None" = None,
     ) -> None:
         if max_parallel < 1:
             raise ValueError("max_parallel must be >= 1")
@@ -43,11 +44,22 @@ class AgentManager:
         self._max_parallel = max_parallel
         self._hooks = hooks or get_hooks()
         self._verifier = verifier
+        self._persist = persist
         self._runs: dict[str, Run] = {}
         self._busy_files: set[str] = set()
         self._slot = asyncio.Condition()
         self._running = 0
         self._paused = False
+
+    def _write_through(self, run: Run) -> None:
+        """Best-effort persistence of one run snapshot. Failures are
+        logged but never block the run."""
+        if self._persist is None:
+            return
+        try:
+            self._persist(run.summary(), run.queued_at)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("run persistence failed: %s", e)
 
     def list_runs(self) -> list[Run]:
         return list(self._runs.values())
@@ -62,6 +74,7 @@ class AgentManager:
         tid = current_trace_id() or new_trace_id()
         run = Run(id=make_run_id(), spec=spec, trace_id=tid)
         self._runs[run.id] = run
+        self._write_through(run)
         run._task = asyncio.create_task(self._drive(run))
         return run
 
@@ -88,6 +101,7 @@ class AgentManager:
         run.error = reason
         run.ended_at = time.time()
         await self._release_files(run.spec.files)
+        self._write_through(run)
         return True
 
     async def wait(self, run_id: str, *, timeout: float | None = None) -> Run:
@@ -119,10 +133,12 @@ class AgentManager:
                     async with self._slot:
                         self._running -= 1
                         self._slot.notify_all()
+                    self._write_through(run)
                     await self._hooks.emit("agent_complete", {"run": run.summary()})
             except asyncio.CancelledError:
                 run.status = RunStatus.KILLED
                 run.ended_at = run.ended_at or time.time()
+                self._write_through(run)
                 await self._hooks.emit("agent_complete", {"run": run.summary()})
 
     async def _run_legacy(self, run: Run) -> None:

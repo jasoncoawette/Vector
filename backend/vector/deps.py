@@ -145,10 +145,16 @@ def get_agents() -> AgentManager:
         s = get_settings()
         executor = _build_real_executor() or _placeholder_executor
         verifier = _build_verifier()
+        from .store import runs as runs_store
+
+        def _persist(summary: dict, queued_at: float | None) -> None:
+            runs_store.upsert_from_summary(get_db(), summary, queued_at=queued_at)
+
         _agents = AgentManager(
             executor=executor,
             max_parallel=s.max_parallel_agents,
             verifier=verifier,
+            persist=_persist,
         )
         if s.auto_security_review:
             from .agents.auto_security import register_auto_security

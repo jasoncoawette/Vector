@@ -55,7 +55,23 @@ app.add_middleware(
 
 @app.on_event("startup")
 def _on_start() -> None:
-    audit.set_sink(get_db())
+    db = get_db()
+    audit.set_sink(db)
+    # Crash recovery: any runs left in queued/running state belong to a
+    # previous process that didn't shut down cleanly. Mark them as
+    # interrupted so the /runs view shows the truth.
+    from .store import runs as runs_store
+
+    interrupted = runs_store.mark_interrupted_on_startup(db)
+    if interrupted:
+        from .store import events as events_store
+
+        try:
+            events_store.emit(
+                db, "startup_recovery", meta={"interrupted_runs": interrupted}
+            )
+        except Exception:  # noqa: BLE001
+            pass
 
 
 _registry: Registry | None = None
@@ -699,3 +715,45 @@ def get_trace(trace_id: str) -> dict:
         "audit": audit_rows,
         "routing": routing_rows,
     }
+
+
+def _serialize_stored_run(r) -> dict:
+    return {
+        "id": r.id,
+        "trace_id": r.trace_id,
+        "type": r.type,
+        "prompt": r.prompt[:200],
+        "files": r.files,
+        "status": r.status,
+        "output": r.output[:4000],
+        "error": r.error,
+        "cost_usd": round(r.cost_usd, 4),
+        "fallback_used": r.fallback_used,
+        "attempts_used": r.attempts_used,
+        "max_attempts": r.max_attempts,
+        "last_verifier_reason": r.last_verifier_reason,
+        "queued_at": r.queued_at,
+        "started_at": r.started_at,
+        "ended_at": r.ended_at,
+        "updated_at": r.updated_at,
+    }
+
+
+@app.get("/runs")
+def list_persisted_runs(limit: int = 100, status: str | None = None) -> dict:
+    """Read agent-run history from the persistent store. Unlike
+    /agents, this survives backend restarts."""
+    from .store import runs as runs_store
+
+    rows = runs_store.recent(get_db(), limit=limit, status=status)
+    return {"runs": [_serialize_stored_run(r) for r in rows]}
+
+
+@app.get("/runs/{run_id}")
+def get_persisted_run(run_id: str) -> dict:
+    from .store import runs as runs_store
+
+    r = runs_store.get(get_db(), run_id)
+    if r is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown run")
+    return _serialize_stored_run(r)

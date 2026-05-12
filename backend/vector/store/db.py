@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # v1 — initial schema. All CREATE TABLE IF NOT EXISTS so it's safe to
 # replay on every connect (idempotent).
@@ -131,6 +131,33 @@ CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts DESC);
 CREATE INDEX IF NOT EXISTS idx_events_run ON events(run_id, ts);
 """
 
+# v3 — persistent runs table. Survives backend restart so the
+# debugging agent (and the /runs view) can read history beyond memory.
+_V3_NEW_TABLES = """
+CREATE TABLE IF NOT EXISTS runs (
+    id TEXT PRIMARY KEY,
+    trace_id TEXT,
+    type TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    files TEXT,
+    status TEXT NOT NULL,
+    output TEXT,
+    error TEXT,
+    cost_usd REAL NOT NULL DEFAULT 0.0,
+    fallback_used INTEGER NOT NULL DEFAULT 0,
+    attempts_used INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 1,
+    last_verifier_reason TEXT,
+    queued_at REAL NOT NULL,
+    started_at REAL,
+    ended_at REAL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_runs_trace ON runs(trace_id);
+CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_runs_updated ON runs(updated_at DESC);
+"""
+
 
 def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
     rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
@@ -171,6 +198,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
         _add_column_if_missing(conn, "audit_log", "trace_id", "TEXT")
         _add_column_if_missing(conn, "routing_log", "trace_id", "TEXT")
         conn.execute("UPDATE schema_meta SET version = ?", (2,))
+
+    if current < 3:
+        conn.executescript(_V3_NEW_TABLES)
+        conn.execute("UPDATE schema_meta SET version = ?", (3,))
 
 
 @contextmanager
