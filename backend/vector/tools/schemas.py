@@ -28,3 +28,33 @@ class MemoryAddArgs(BaseModel):
     kind: str = Field(min_length=1, max_length=64)
     text: str = Field(min_length=1, max_length=20_000)
     meta: dict | None = None
+
+
+# --- Obsidian vault tool ---------------------------------------------
+
+
+class ObsidianReadArgs(BaseModel):
+    title: str = Field(min_length=1, max_length=512)
+
+
+class ObsidianWriteArgs(BaseModel):
+    title: str = Field(min_length=1, max_length=512)
+    body: str = Field(max_length=1_000_000)
+
+
+class ObsidianAppendArgs(BaseModel):
+    title: str = Field(min_length=1, max_length=512)
+    body: str = Field(min_length=1, max_length=1_000_000)
+
+
+class ObsidianSearchArgs(BaseModel):
+    query: str = Field(min_length=1, max_length=500)
+    k: int = Field(default=5, ge=1, le=20)
+
+
+class ObsidianBacklinksArgs(BaseModel):
+    title: str = Field(min_length=1, max_length=512)
+
+
+class ObsidianListArgs(BaseModel):
+    pass

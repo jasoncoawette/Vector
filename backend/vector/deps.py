@@ -22,6 +22,7 @@ _agents: AgentManager | None = None
 _plans: PlanRunner | None = None
 _memory: MemoryStore | None = None
 _file_guard: FileGuard | None = None
+_obsidian = None  # ObsidianVault | None (avoid hard import at module load)
 _session_factory: "callable[[], VoiceSession] | None" = None
 
 
@@ -64,8 +65,35 @@ def set_file_guard(guard: FileGuard | None) -> None:
     _file_guard = guard
 
 
+def get_obsidian():
+    """Lazily build an ObsidianVault pointed at the configured path.
+
+    Returns None when the vault directory doesn't exist and can't be
+    created — agents fall back to file + memory tools only."""
+    global _obsidian
+    if _obsidian is None:
+        from .tools.obsidian import ObsidianVault
+
+        s = get_settings()
+        try:
+            _obsidian = ObsidianVault(root=s.obsidian_vault)
+        except (OSError, ValueError):
+            return None
+    return _obsidian
+
+
+def set_obsidian(vault) -> None:
+    global _obsidian
+    _obsidian = vault
+
+
 def _registry_factory(agent_type: str):
-    return build_registry_for(agent_type, guard=get_file_guard(), memory=get_memory())
+    return build_registry_for(
+        agent_type,
+        guard=get_file_guard(),
+        memory=get_memory(),
+        obsidian=get_obsidian(),
+    )
 
 
 async def _placeholder_executor(spec: AgentSpec, prompt: str) -> RunResult:

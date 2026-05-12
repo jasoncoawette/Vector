@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 7777
     workspace: Path = Path.home() / "VectorWorkspace"
+    obsidian_vault: Path = Path.home() / "Obsidian" / "Stratus"
     build_hash: str = "dev"
 
     anthropic_api_key: str = ""

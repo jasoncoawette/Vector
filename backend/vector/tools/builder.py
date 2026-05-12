@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from ..memory import MemoryStore
 from .files import FileGuard
+from .obsidian import ObsidianVault
 from .registry import Registry, Tool
 from .schemas import (
     FileDeleteArgs,
@@ -9,12 +10,24 @@ from .schemas import (
     FileWriteArgs,
     MemoryAddArgs,
     MemorySearchArgs,
+    ObsidianAppendArgs,
+    ObsidianBacklinksArgs,
+    ObsidianListArgs,
+    ObsidianReadArgs,
+    ObsidianSearchArgs,
+    ObsidianWriteArgs,
 )
 
 # Which agent types get memory.search (read) vs memory.add (write).
 # Code and tester get read-only; research / writer / security get both.
 MEMORY_READ_TYPES = frozenset({"code", "tester", "research", "writer", "security"})
 MEMORY_WRITE_TYPES = frozenset({"research", "writer", "security"})
+
+# Obsidian vault: knowledge-base shape. Read tools go to anything that
+# could benefit from prior notes; write tools only to research + writer
+# so code / tester / security can't accidentally pollute the vault.
+OBSIDIAN_READ_TYPES = frozenset({"code", "tester", "research", "writer", "security"})
+OBSIDIAN_WRITE_TYPES = frozenset({"research", "writer"})
 
 
 def _add_file_tools(reg: Registry, guard: FileGuard) -> None:
@@ -81,6 +94,67 @@ def _add_memory_add(reg: Registry, memory: MemoryStore) -> None:
     )
 
 
+def _add_obsidian_read(reg: Registry, vault: ObsidianVault) -> None:
+    reg.register(
+        Tool(
+            name="obsidian.list",
+            schema=ObsidianListArgs,
+            handler=lambda _a: {"notes": vault.list_notes()},
+            description="List every note title in the Obsidian vault.",
+        )
+    )
+    reg.register(
+        Tool(
+            name="obsidian.read",
+            schema=ObsidianReadArgs,
+            handler=lambda a: vault.read(a.title),
+            description="Read one Obsidian note by title (or folder/title).",
+        )
+    )
+    reg.register(
+        Tool(
+            name="obsidian.search",
+            schema=ObsidianSearchArgs,
+            handler=lambda a: [
+                {
+                    "title": h.title,
+                    "snippet": h.snippet,
+                    "line": h.line,
+                }
+                for h in vault.search(a.query, k=a.k)
+            ],
+            description="Substring search across the vault. Returns title + snippet.",
+        )
+    )
+    reg.register(
+        Tool(
+            name="obsidian.backlinks",
+            schema=ObsidianBacklinksArgs,
+            handler=lambda a: {"backlinks": vault.backlinks(a.title)},
+            description="Notes that link to [[title]] via wiki-link syntax.",
+        )
+    )
+
+
+def _add_obsidian_write(reg: Registry, vault: ObsidianVault) -> None:
+    reg.register(
+        Tool(
+            name="obsidian.write",
+            schema=ObsidianWriteArgs,
+            handler=lambda a: vault.write(a.title, a.body),
+            description="Create or overwrite an Obsidian note.",
+        )
+    )
+    reg.register(
+        Tool(
+            name="obsidian.append",
+            schema=ObsidianAppendArgs,
+            handler=lambda a: vault.append(a.title, a.body),
+            description="Append to an existing note (creates it if missing).",
+        )
+    )
+
+
 def build_default_registry(guard: FileGuard) -> Registry:
     reg = Registry()
     _add_file_tools(reg, guard)
@@ -92,12 +166,15 @@ def build_registry_for(
     *,
     guard: FileGuard,
     memory: MemoryStore | None = None,
+    obsidian: ObsidianVault | None = None,
 ) -> Registry:
     """Return a registry scoped to one agent type's tool needs.
 
-    Files are always available. Memory.search is granted to agents that
-    benefit from recall; memory.add only to those that should accumulate
-    long-term state (research, writer, security)."""
+    Files are always available. Memory + Obsidian are gated by type:
+      - memory.search / obsidian.* read: every agent
+      - memory.add: research / writer / security
+      - obsidian.write / append: research / writer only
+    """
     reg = Registry()
     _add_file_tools(reg, guard)
     if memory is not None:
@@ -105,4 +182,9 @@ def build_registry_for(
             _add_memory_search(reg, memory)
         if agent_type in MEMORY_WRITE_TYPES:
             _add_memory_add(reg, memory)
+    if obsidian is not None:
+        if agent_type in OBSIDIAN_READ_TYPES or agent_type is None:
+            _add_obsidian_read(reg, obsidian)
+        if agent_type in OBSIDIAN_WRITE_TYPES:
+            _add_obsidian_write(reg, obsidian)
     return reg
