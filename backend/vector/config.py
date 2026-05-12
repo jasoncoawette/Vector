@@ -10,6 +10,8 @@ SECRET_FIELDS = frozenset(
         "anthropic_api_key",
         "elevenlabs_api_key",
         "google_maps_api_key",
+        "google_oauth_client_secret",
+        "oauth_token_key",
         "backend_bearer",
         "linear_api_key",
         "linear_webhook_secret",
@@ -31,6 +33,9 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     elevenlabs_api_key: str = ""
     google_maps_api_key: str = ""
+    google_oauth_client_id: str = ""
+    google_oauth_client_secret: str = ""
+    oauth_token_key: str = ""  # base64 32-byte key for token encryption
     backend_bearer: str = ""
     elevenlabs_voice_id: str = "default"
     linear_api_key: str = ""

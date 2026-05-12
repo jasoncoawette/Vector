@@ -24,6 +24,8 @@ _memory: MemoryStore | None = None
 _file_guard: FileGuard | None = None
 _obsidian = None  # ObsidianVault | None (avoid hard import at module load)
 _maps = None  # MapsClient | None
+_oauth_flow = None  # OAuthFlow | None
+_token_store = None  # TokenStore | None
 _session_factory: "callable[[], VoiceSession] | None" = None
 
 
@@ -105,6 +107,56 @@ def get_maps():
 def set_maps(client) -> None:
     global _maps
     _maps = client
+
+
+def get_token_store():
+    """Lazily build a Google TokenStore on top of the shared DB.
+
+    Returns None when no token-encryption key is configured (refuse to
+    write plaintext refresh tokens)."""
+    global _token_store
+    if _token_store is None:
+        import os
+
+        s = get_settings()
+        key = s.oauth_token_key
+        if not key:
+            return None
+        # The encrypt/decrypt helpers read VECTOR_OAUTH_TOKEN_KEY from
+        # the environment; mirror the setting there so they line up.
+        os.environ["VECTOR_OAUTH_TOKEN_KEY"] = key
+        from .google_oauth import TokenStore
+
+        _token_store = TokenStore(get_db())
+    return _token_store
+
+
+def set_token_store(store) -> None:
+    global _token_store
+    _token_store = store
+
+
+def get_oauth_flow():
+    """Lazily build the Google OAuthFlow. Returns None when the OAuth
+    client id / secret aren't configured."""
+    global _oauth_flow
+    if _oauth_flow is None:
+        s = get_settings()
+        if not s.google_oauth_client_id or not s.google_oauth_client_secret:
+            return None
+        from .google_oauth import OAuthFlow
+
+        _oauth_flow = OAuthFlow(
+            client_id=s.google_oauth_client_id,
+            client_secret=s.google_oauth_client_secret,
+            port=s.port,
+        )
+    return _oauth_flow
+
+
+def set_oauth_flow(flow) -> None:
+    global _oauth_flow
+    _oauth_flow = flow
 
 
 def _registry_factory(agent_type: str):

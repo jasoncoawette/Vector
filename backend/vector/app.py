@@ -867,6 +867,116 @@ def get_costs(history_days: int = 14) -> dict:
 
 
 # ---------------------------------------------------------------------
+# Google OAuth bridge. Loopback consent flow + encrypted refresh-token
+# storage. Endpoints land here, before the plans + static mount.
+# ---------------------------------------------------------------------
+from .deps import get_oauth_flow, get_token_store  # noqa: E402
+from .google_oauth import OAuthError, SCOPES_CALENDAR, SCOPES_GMAIL_SEND  # noqa: E402
+
+
+class OAuthStartBody(BaseModel):
+    scopes: list[str] = Field(min_length=1, max_length=16)
+    account: str = Field(default="default", max_length=200)
+
+
+@app.post("/oauth/google/start", dependencies=[Depends(require_bearer)])
+def oauth_google_start(body: OAuthStartBody) -> dict:
+    """Begin the consent flow. Returns the URL to open in a browser."""
+    flow = get_oauth_flow()
+    if flow is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "google oauth not configured",
+        )
+    try:
+        url = flow.start(body.scopes)
+    except OAuthError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+    audit.record(
+        "oauth.google.start",
+        "user",
+        {"scopes": body.scopes, "account": body.account},
+        {"ok": True},
+        ok=True,
+    )
+    return {"url": url, "account": body.account}
+
+
+@app.get("/oauth/google/callback")
+async def oauth_google_callback(
+    code: str | None = None, state: str | None = None, error: str | None = None
+) -> dict:
+    """Google redirects here after the user grants access."""
+    if error:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"oauth error: {error}")
+    if not code or not state:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "missing code or state")
+    flow = get_oauth_flow()
+    store = get_token_store()
+    if flow is None or store is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "google oauth not configured",
+        )
+    try:
+        token, pending = await flow.complete(code=code, state=state)
+    except OAuthError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+    if not token.refresh_token:
+        # Google only returns a refresh token on first grant or when
+        # prompt=consent is set. Our flow sets prompt=consent so this
+        # path is rare — but we surface it clearly if it happens.
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "no refresh token returned; revoke + retry the consent flow",
+        )
+    store.save(
+        account="default",
+        scopes=list(pending.scopes),
+        refresh_token=token.refresh_token,
+        access_token=token.access_token,
+        expires_in=token.expires_in,
+    )
+    audit.record(
+        "oauth.google.callback",
+        "google",
+        {"scopes": list(pending.scopes)},
+        {"ok": True},
+        ok=True,
+    )
+    return {"ok": True, "scopes": list(pending.scopes)}
+
+
+@app.get("/oauth/google/status")
+def oauth_google_status() -> dict:
+    store = get_token_store()
+    if store is None:
+        return {"configured": False, "accounts": []}
+    return {"configured": True, "accounts": store.list_accounts()}
+
+
+@app.delete("/oauth/google/{account}", dependencies=[Depends(require_bearer)])
+def oauth_google_revoke(account: str) -> dict:
+    store = get_token_store()
+    if store is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "google oauth not configured",
+        )
+    deleted = store.delete(account)
+    audit.record(
+        "oauth.google.revoke",
+        "user",
+        {"account": account},
+        {"deleted": deleted},
+        ok=deleted,
+    )
+    if not deleted:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown account")
+    return {"deleted": True}
+
+
+# ---------------------------------------------------------------------
 # Plans (DAG execution). Endpoints land here, before the static mount.
 # ---------------------------------------------------------------------
 from .deps import get_plans  # noqa: E402
