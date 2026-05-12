@@ -7,6 +7,7 @@
     Tasks, AgentLog, Vitals, Threat, Heat, Voice, Map,
     Waveform
   } from '$lib/designkit';
+  import Orb from '$lib/Orb.svelte';
 
   const initial = [
     { id: 'video',   x: 568, y: 16,  w: 360, h: 220, kind: 'video' },
@@ -108,11 +109,14 @@
 
   <!-- Ask bar -->
   <div class="ask">
-    <span class="orb"></span>
+    <span class="dot"></span>
     <input placeholder="Ask Vector — try “show me my standup script”"/>
     <Waveform w={120} h={20}/>
     <span class="mono kbd">⌘K</span>
   </div>
+
+  <!-- Docked orb (compact, bottom-right) -->
+  <Orb compact />
 </div>
 
 <style>
@@ -164,7 +168,7 @@
     backdrop-filter: blur(20px) saturate(160%);
     display: flex; align-items: center; gap: 12px; z-index: 11;
   }
-  .orb { width: 8px; height: 8px; border-radius: 99px; background: var(--vec); }
+  .dot { width: 8px; height: 8px; border-radius: 99px; background: var(--vec); }
   .ask input {
     flex: 1; background: transparent; border: 0; outline: 0;
     color: var(--ink-0); font-size: 14px;
