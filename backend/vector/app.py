@@ -8,8 +8,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from . import audit
+from .agents.types import AgentSpec, AgentType, RunStatus
 from .config import get_settings
-from .deps import get_db
+from .deps import get_agents, get_db
 from .engine import brief as brief_mod
 from .engine import picker, review
 from .store import metrics as metrics_store
@@ -243,3 +244,80 @@ def upsert_task(body: TaskBody) -> dict:
         mission=body.mission,
     )
     return {"id": tid}
+
+
+class AgentSpawnBody(BaseModel):
+    type: AgentType
+    prompt: str = Field(min_length=1, max_length=8000)
+    files: list[str] = Field(default_factory=list)
+    fallback_prompt: str | None = Field(default=None, max_length=8000)
+    cost_cap_usd: float = Field(default=1.0, gt=0, le=10.0)
+    timeout_s: int = Field(default=600, ge=1, le=3600)
+
+
+@app.post("/agents/spawn")
+async def spawn_agent(body: AgentSpawnBody) -> dict:
+    mgr = get_agents()
+    spec = AgentSpec(
+        type=body.type,
+        prompt=body.prompt,
+        files=frozenset(body.files),
+        fallback_prompt=body.fallback_prompt,
+        cost_cap_usd=body.cost_cap_usd,
+        timeout_s=body.timeout_s,
+    )
+    run = await mgr.spawn(spec)
+    audit.record("agents.spawn", "user", body.model_dump(), {"id": run.id}, ok=True)
+    return run.summary()
+
+
+@app.get("/agents")
+def list_agents() -> dict:
+    mgr = get_agents()
+    return {"runs": [r.summary() for r in mgr.list_runs()]}
+
+
+@app.get("/agents/{run_id}")
+def get_agent(run_id: str) -> dict:
+    mgr = get_agents()
+    run = mgr.get(run_id)
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown run")
+    return run.summary()
+
+
+class AgentKillBody(BaseModel):
+    reason: str = Field(default="killed by user", max_length=200)
+
+
+@app.post("/agents/{run_id}/kill")
+async def kill_agent(run_id: str, body: AgentKillBody) -> dict:
+    mgr = get_agents()
+    if mgr.get(run_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown run")
+    killed = await mgr.kill(run_id, reason=body.reason)
+    audit.record("agents.kill", "user", {"run_id": run_id}, {"killed": killed}, ok=killed)
+    return {"killed": killed}
+
+
+def _voice_report(run_summary: dict) -> str:
+    s = run_summary["status"]
+    t = run_summary["type"]
+    if s == RunStatus.DONE.value:
+        return f"{t.capitalize()} agent finished. {run_summary['output'][:200]}"
+    if s == RunStatus.FAILED.value:
+        return f"{t.capitalize()} agent failed: {run_summary['error']}"
+    if s == RunStatus.KILLED.value:
+        return f"{t.capitalize()} agent killed: {run_summary['error']}"
+    if s == RunStatus.NEEDS_CONFIRM.value:
+        return f"{t.capitalize()} agent paused: {run_summary['error']}. Confirm to proceed."
+    return f"{t.capitalize()} agent still {s}, {run_summary['elapsed_s']:.0f} seconds in."
+
+
+@app.get("/agents/{run_id}/report")
+def agent_report(run_id: str) -> dict:
+    mgr = get_agents()
+    run = mgr.get(run_id)
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown run")
+    return {"text": _voice_report(run.summary())}
