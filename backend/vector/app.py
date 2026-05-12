@@ -361,6 +361,8 @@ class AgentSpawnBody(BaseModel):
     fallback_prompt: str | None = Field(default=None, max_length=8000)
     cost_cap_usd: float = Field(default=1.0, gt=0, le=10.0)
     timeout_s: int = Field(default=600, ge=1, le=3600)
+    success_criteria: str | None = Field(default=None, max_length=2000)
+    max_attempts: int = Field(default=3, ge=1, le=5)
 
 
 @app.post("/agents/spawn", dependencies=[Depends(require_bearer)])
@@ -373,6 +375,8 @@ async def spawn_agent(body: AgentSpawnBody) -> dict:
         fallback_prompt=body.fallback_prompt,
         cost_cap_usd=body.cost_cap_usd,
         timeout_s=body.timeout_s,
+        success_criteria=body.success_criteria,
+        max_attempts=body.max_attempts,
     )
     with trace() as trace_id:
         run = await mgr.spawn(spec)
@@ -471,6 +475,8 @@ async def fan_out_agents(body: FanOutBody) -> dict:
             fallback_prompt=s.fallback_prompt,
             cost_cap_usd=s.cost_cap_usd,
             timeout_s=s.timeout_s,
+            success_criteria=s.success_criteria,
+            max_attempts=s.max_attempts,
         )
         for s in body.specs
     ]

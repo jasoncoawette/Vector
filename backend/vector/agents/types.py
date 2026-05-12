@@ -11,6 +11,7 @@ AgentType = Literal["code", "research", "writer", "tester", "security"]
 
 DEFAULT_COST_CAP_USD = 1.0
 DEFAULT_TIMEOUT_S = 600
+DEFAULT_MAX_ATTEMPTS = 3
 LONG_RUN_S = 600
 
 
@@ -31,6 +32,12 @@ class AgentSpec:
     fallback_prompt: str | None = None
     cost_cap_usd: float = DEFAULT_COST_CAP_USD
     timeout_s: int = DEFAULT_TIMEOUT_S
+    # Self-healing. When success_criteria is None, no verifier runs and
+    # behavior matches the legacy one-shot-with-fallback path. When set,
+    # the manager retries up to max_attempts, feeding the verifier's
+    # reason back into the next attempt's prompt.
+    success_criteria: str | None = None
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS
 
 
 @dataclass
@@ -49,6 +56,8 @@ class Run:
     error: str = ""
     cost_usd: float = 0.0
     fallback_used: bool = False
+    attempts_used: int = 0
+    last_verifier_reason: str | None = None
     queued_at: float = field(default_factory=time.time)
     started_at: float | None = None
     ended_at: float | None = None
@@ -75,6 +84,9 @@ class Run:
             "status": self.status.value,
             "cost_usd": round(self.cost_usd, 4),
             "fallback_used": self.fallback_used,
+            "attempts_used": self.attempts_used,
+            "max_attempts": self.spec.max_attempts,
+            "last_verifier_reason": self.last_verifier_reason,
             "elapsed_s": round(self.elapsed_s or 0.0, 2),
             "long_running": self.long_running,
             "files": sorted(self.spec.files),

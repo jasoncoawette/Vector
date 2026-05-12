@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 
 from ..hooks import HookRegistry, get_hooks
@@ -13,6 +14,13 @@ from .types import (
     RunStatus,
     make_run_id,
 )
+from .verifier import Verifier
+
+logger = logging.getLogger("vector.agents")
+
+# Per-attempt sleep before retrying. Index = attempt number (1-based).
+# attempt 1 -> 0s, attempt 2 -> 2s, attempt 3 -> 4s, ...
+RETRY_BACKOFF_S = (0.0, 0.0, 2.0, 4.0, 8.0, 16.0)
 
 
 class AgentManager:
@@ -27,12 +35,14 @@ class AgentManager:
         *,
         max_parallel: int = 3,
         hooks: HookRegistry | None = None,
+        verifier: Verifier | None = None,
     ) -> None:
         if max_parallel < 1:
             raise ValueError("max_parallel must be >= 1")
         self._executor = executor
         self._max_parallel = max_parallel
         self._hooks = hooks or get_hooks()
+        self._verifier = verifier
         self._runs: dict[str, Run] = {}
         self._busy_files: set[str] = set()
         self._slot = asyncio.Condition()
@@ -100,14 +110,10 @@ class AgentManager:
             try:
                 await self._acquire_slot(run)
                 try:
-                    await self._run_once(run, run.spec.prompt, fallback=False)
-                    if run.status == RunStatus.FAILED and run.spec.fallback_prompt:
-                        run.fallback_used = True
-                        run.status = RunStatus.RUNNING
-                        run.error = ""
-                        await self._run_once(
-                            run, run.spec.fallback_prompt, fallback=True
-                        )
+                    if run.spec.success_criteria and self._verifier is not None:
+                        await self._run_with_verifier(run)
+                    else:
+                        await self._run_legacy(run)
                 finally:
                     await self._release_files(run.spec.files)
                     async with self._slot:
@@ -118,6 +124,77 @@ class AgentManager:
                 run.status = RunStatus.KILLED
                 run.ended_at = run.ended_at or time.time()
                 await self._hooks.emit("agent_complete", {"run": run.summary()})
+
+    async def _run_legacy(self, run: Run) -> None:
+        """One attempt with the original prompt, then one fallback if it
+        failed and a fallback_prompt is set."""
+        await self._run_once(run, run.spec.prompt, fallback=False)
+        run.attempts_used = 1
+        if run.status == RunStatus.FAILED and run.spec.fallback_prompt:
+            run.fallback_used = True
+            run.status = RunStatus.RUNNING
+            run.error = ""
+            await self._run_once(run, run.spec.fallback_prompt, fallback=True)
+            run.attempts_used = 2
+
+    async def _run_with_verifier(self, run: Run) -> None:
+        """Self-healing loop. Try up to max_attempts. After each attempt
+        that produces output, ask the verifier whether the success
+        criteria are met. If not, feed the reason into the next prompt
+        and retry with exponential backoff. The per-spec cost cap still
+        applies across attempts (set in _run_once)."""
+        criteria = run.spec.success_criteria or ""
+        max_attempts = max(1, run.spec.max_attempts)
+        feedback: str | None = None
+
+        for attempt in range(1, max_attempts + 1):
+            run.attempts_used = attempt
+
+            backoff = RETRY_BACKOFF_S[min(attempt, len(RETRY_BACKOFF_S) - 1)]
+            if backoff:
+                try:
+                    await asyncio.sleep(backoff)
+                except asyncio.CancelledError:
+                    raise
+
+            prompt = run.spec.prompt if feedback is None else (
+                run.spec.prompt
+                + "\n\nThe previous attempt did not satisfy the criterion. "
+                + f"Reason: {feedback}\n"
+                + "Address that issue specifically in this attempt."
+            )
+            run.status = RunStatus.RUNNING
+            run.error = ""
+            await self._run_once(run, prompt, fallback=False)
+
+            # Hard cost ceiling: NEEDS_CONFIRM is sticky.
+            if run.status == RunStatus.NEEDS_CONFIRM:
+                return
+            if run.status == RunStatus.FAILED:
+                feedback = run.error
+                continue
+            # status == DONE — check the verifier.
+            try:
+                verdict = await self._verifier.check(criteria, run.output)  # type: ignore[union-attr]
+            except Exception as e:  # noqa: BLE001
+                logger.warning("verifier crashed: %s", e)
+                run.last_verifier_reason = f"verifier crashed: {e}"
+                # Treat as success rather than block on a broken verifier.
+                return
+
+            run.cost_usd += verdict.cost_usd
+            run.last_verifier_reason = verdict.reason
+
+            if verdict.success:
+                return
+            if attempt == max_attempts:
+                run.status = RunStatus.FAILED
+                run.error = (
+                    f"verifier rejected after {attempt} attempts: {verdict.reason}"
+                )
+                run.ended_at = time.time()
+                return
+            feedback = verdict.reason
 
     async def _acquire_slot(self, run: Run) -> None:
         async with self._slot:

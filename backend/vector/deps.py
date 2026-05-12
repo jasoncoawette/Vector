@@ -114,12 +114,42 @@ def _build_real_executor() -> ClaudeAgentExecutor | None:
     )
 
 
+def _build_verifier():
+    """Return a Haiku-backed verifier when the API key is set, else None.
+
+    The verifier shares the Anthropic client but always routes to Haiku
+    regardless of complexity score — verification is bounded and cheap."""
+    s = get_settings()
+    if not s.anthropic_api_key:
+        return None
+    client = _build_anthropic_client(s.anthropic_api_key)
+    if client is None:
+        return None
+    from .agents.verifier import VERIFIER_SYSTEM, ClaudeVerifier
+    from .voice.routing import TIER_MODELS, Tier
+
+    def factory(_agent_type: str):
+        return ClaudeBrain(
+            api_key=s.anthropic_api_key,
+            model=TIER_MODELS[Tier.HAIKU],
+            client=client,
+            system=VERIFIER_SYSTEM,
+        )
+
+    return ClaudeVerifier(brain_factory=factory)
+
+
 def get_agents() -> AgentManager:
     global _agents
     if _agents is None:
         s = get_settings()
         executor = _build_real_executor() or _placeholder_executor
-        _agents = AgentManager(executor=executor, max_parallel=s.max_parallel_agents)
+        verifier = _build_verifier()
+        _agents = AgentManager(
+            executor=executor,
+            max_parallel=s.max_parallel_agents,
+            verifier=verifier,
+        )
         if s.auto_security_review:
             from .agents.auto_security import register_auto_security
 
