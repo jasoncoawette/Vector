@@ -464,6 +464,17 @@ All metrics live in SQLite. Dashboard in SvelteKit at /metrics. Vector reads the
 - Barge-in (frontend signals mic activity; backend cancels in-flight TTS)
 - Linear webhook receiver with HMAC-SHA256 signature verification
 
+### Phase 8: Cost Router + Self-Learning + Parallel Specialists (Weeks 15–16)
+
+- 3-tier model router: Haiku (<30% complexity), Sonnet (30–70%), Opus (≥70%)
+- Per-turn complexity scorer with keyword + length + agent-type features
+- Multi-armed bandit (Beta priors per tier) refines routing from outcomes; can drift one tier in either direction from the heuristic but never both
+- Generalized hook registry: `tool_call_complete`, `agent_complete`, `pick_override`, `routing_decision`, `voice_turn_complete`
+- New agent types: `tester`, `security` (alongside `code`, `research`, `writer`)
+- `AgentManager.fan_out([specs])` runs the four in parallel under the same parallel cap + file-conflict guard
+- Pause / resume on the manager (holds new starts, lets in-flight finish)
+- Refocus: kill a run and respawn with a tighter prompt while preserving cost cap, timeout, and file lock
+
 ---
 
 ## 17. Success Metrics

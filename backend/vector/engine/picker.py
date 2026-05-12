@@ -112,6 +112,7 @@ def record_override(
     removed_task_id: int,
     added_task_id: int,
     learning_rate: float = 0.1,
+    hooks: "object | None" = None,
 ) -> dict[str, float]:
     conn.execute(
         "INSERT INTO overrides(day, removed_task_id, added_task_id, created_at) VALUES(?, ?, ?, ?)",
@@ -128,4 +129,17 @@ def record_override(
             if delta:
                 weights[feature] = weights.get(feature, 0.0) + learning_rate * delta
         save_weights(conn, weights)
+    if hooks is not None:
+        try:
+            hooks.emit_nowait(
+                "pick_override",
+                {
+                    "day": day,
+                    "removed": removed_task_id,
+                    "added": added_task_id,
+                    "weights": weights,
+                },
+            )
+        except Exception:  # noqa: BLE001
+            pass
     return weights

@@ -56,8 +56,17 @@ def _build_real_executor() -> ClaudeAgentExecutor | None:
     if client is None:
         return None
 
-    def factory(agent_type: str) -> Brain:
-        model = s.brain_model_hot if agent_type != "code" else s.brain_model_hard
+    from .voice import bandit
+    from .voice.routing import TIER_MODELS, Tier
+
+    def factory(agent_type: str, *, prompt: str | None = None) -> Brain:
+        # Route by complexity score when we have a prompt; otherwise fall
+        # back to Sonnet which is the safest default tier for unknowns.
+        if prompt:
+            decision = bandit.route(get_db(), prompt, agent_type=agent_type)
+            model = decision.model
+        else:
+            model = TIER_MODELS[Tier.SONNET]
         return ClaudeBrain(
             api_key=s.anthropic_api_key,
             model=model,

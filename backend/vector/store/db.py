@@ -91,6 +91,25 @@ _MIGRATIONS: list[str] = [
         recorded_at REAL NOT NULL,
         UNIQUE(week, rank)
     );
+    CREATE TABLE IF NOT EXISTS routing_bandit (
+        tier TEXT PRIMARY KEY,
+        alpha REAL NOT NULL DEFAULT 1.0,
+        beta REAL NOT NULL DEFAULT 1.0,
+        trials INTEGER NOT NULL DEFAULT 0,
+        updated_at REAL NOT NULL DEFAULT 0.0
+    );
+    CREATE TABLE IF NOT EXISTS routing_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts REAL NOT NULL,
+        agent_type TEXT,
+        tier TEXT NOT NULL,
+        model TEXT NOT NULL,
+        score REAL NOT NULL,
+        source TEXT NOT NULL,
+        outcome INTEGER,
+        cost_usd REAL
+    );
+    CREATE INDEX IF NOT EXISTS idx_routing_log_ts ON routing_log(ts DESC);
     """,
 ]
 

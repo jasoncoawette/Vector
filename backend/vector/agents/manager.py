@@ -4,6 +4,7 @@ import asyncio
 import time
 from dataclasses import dataclass
 
+from ..hooks import HookRegistry, get_hooks
 from .types import (
     AgentSpec,
     Executor,
@@ -30,16 +31,24 @@ class AgentManager:
     `executor` is injected so tests don't call out to Claude.
     """
 
-    def __init__(self, executor: Executor, *, max_parallel: int = 3) -> None:
+    def __init__(
+        self,
+        executor: Executor,
+        *,
+        max_parallel: int = 3,
+        hooks: HookRegistry | None = None,
+    ) -> None:
         if max_parallel < 1:
             raise ValueError("max_parallel must be >= 1")
         self._executor = executor
         self._max_parallel = max_parallel
+        self._hooks = hooks or get_hooks()
         self._runs: dict[str, Run] = {}
         self._busy_files: set[str] = set()
         self._lock = asyncio.Lock()
         self._slot = asyncio.Condition()
         self._running = 0
+        self._paused = False
 
     def list_runs(self) -> list[Run]:
         return list(self._runs.values())
@@ -52,6 +61,15 @@ class AgentManager:
         self._runs[run.id] = run
         run._task = asyncio.create_task(self._drive(run))
         return run
+
+    async def fan_out(self, specs: list[AgentSpec]) -> list[Run]:
+        """Spawn many specs in one call. The manager's parallel cap +
+        file-conflict guard still apply — fan_out only saves the caller
+        from a loop and guarantees the runs appear in deterministic order."""
+        runs: list[Run] = []
+        for spec in specs:
+            runs.append(await self.spawn(spec))
+        return runs
 
     async def kill(self, run_id: str, *, reason: str = "killed by user") -> bool:
         run = self._runs.get(run_id)
@@ -95,16 +113,58 @@ class AgentManager:
                 async with self._slot:
                     self._running -= 1
                     self._slot.notify_all()
+                await self._hooks.emit("agent_complete", {"run": run.summary()})
         except asyncio.CancelledError:
             run.status = RunStatus.KILLED
             run.ended_at = run.ended_at or time.time()
+            await self._hooks.emit("agent_complete", {"run": run.summary()})
 
     async def _acquire_slot(self, run: Run) -> None:
         async with self._slot:
-            while self._running >= self._max_parallel or self._files_busy(run.spec.files):
+            while (
+                self._paused
+                or self._running >= self._max_parallel
+                or self._files_busy(run.spec.files)
+            ):
                 await self._slot.wait()
             self._running += 1
             self._busy_files.update(run.spec.files)
+
+    async def pause(self) -> None:
+        """Hold new starts. In-flight runs are allowed to complete."""
+        async with self._slot:
+            self._paused = True
+
+    async def resume(self) -> None:
+        async with self._slot:
+            self._paused = False
+            self._slot.notify_all()
+
+    @property
+    def paused(self) -> bool:
+        return self._paused
+
+    async def refocus(self, run_id: str, new_prompt: str) -> Run | None:
+        """Kill an in-flight run and respawn with a tighter scope.
+
+        Returns the new Run, or None if the original run is unknown.
+        File-set, fallback, cost_cap, timeout are preserved.
+        """
+        old = self._runs.get(run_id)
+        if old is None:
+            return None
+        await self.kill(run_id, reason="refocused")
+        from .types import AgentSpec
+
+        new_spec = AgentSpec(
+            type=old.spec.type,
+            prompt=new_prompt,
+            files=old.spec.files,
+            fallback_prompt=old.spec.fallback_prompt,
+            cost_cap_usd=old.spec.cost_cap_usd,
+            timeout_s=old.spec.timeout_s,
+        )
+        return await self.spawn(new_spec)
 
     def _files_busy(self, files: frozenset[str]) -> bool:
         return any(f in self._busy_files for f in files)

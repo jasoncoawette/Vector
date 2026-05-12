@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Awaitable, Callable, Literal
 
-AgentType = Literal["code", "research", "writer"]
+AgentType = Literal["code", "research", "writer", "tester", "security"]
 
 DEFAULT_COST_CAP_USD = 1.0
 DEFAULT_TIMEOUT_S = 600

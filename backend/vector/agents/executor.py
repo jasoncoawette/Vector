@@ -22,6 +22,18 @@ SYSTEM_PROMPTS = {
         "You are a writing sub-agent for Vector. "
         "Match Jason's voice: short sentences, no filler, action-first."
     ),
+    "tester": (
+        "You are a testing sub-agent for Vector. "
+        "Write or extend tests for the given code or behavior. "
+        "Cover the golden path plus one edge case per public surface. "
+        "Reuse existing test fixtures; do not introduce a new framework."
+    ),
+    "security": (
+        "You are a security sub-agent for Vector. "
+        "Audit the supplied diff or code for OWASP top-10 issues, "
+        "secret leakage, scope-escape, and ITAR boundary violations. "
+        "Return findings with severity (low/med/high) and a one-line fix."
+    ),
 }
 
 MAX_STEPS = 12
@@ -36,7 +48,10 @@ class ClaudeAgentExecutor:
     max_steps: int = MAX_STEPS
 
     async def __call__(self, spec: AgentSpec, prompt: str) -> RunResult:
-        brain: Brain = self.brain_factory(spec.type)
+        try:
+            brain: Brain = self.brain_factory(spec.type, prompt=prompt)
+        except TypeError:
+            brain = self.brain_factory(spec.type)
         history: list[dict] = []
         total_cost = 0.0
         final_text = ""

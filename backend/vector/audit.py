@@ -7,6 +7,8 @@ import sqlite3
 import time
 from typing import Any
 
+from .hooks import get_hooks
+
 logger = logging.getLogger("vector.audit")
 
 _sink: sqlite3.Connection | None = None
@@ -54,6 +56,13 @@ def record(tool: str, caller: str, args: dict, result: Any, ok: bool) -> dict:
             )
         except sqlite3.Error as e:
             logger.warning("audit sink failed: %s", e)
+    try:
+        get_hooks().emit_nowait(
+            "tool_call_complete",
+            {"tool": tool, "caller": caller, "ok": ok, "ts": entry["ts"]},
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.debug("hook emit failed: %s", e)
     return entry
 
 

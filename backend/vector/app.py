@@ -392,6 +392,71 @@ async def kill_agent(run_id: str, body: AgentKillBody) -> dict:
     return {"killed": killed}
 
 
+@app.post("/agents/pause", dependencies=[Depends(require_bearer)])
+async def pause_agents() -> dict:
+    mgr = get_agents()
+    await mgr.pause()
+    audit.record("agents.pause", "user", {}, {"paused": True}, ok=True)
+    return {"paused": True}
+
+
+@app.post("/agents/resume", dependencies=[Depends(require_bearer)])
+async def resume_agents() -> dict:
+    mgr = get_agents()
+    await mgr.resume()
+    audit.record("agents.resume", "user", {}, {"paused": False}, ok=True)
+    return {"paused": False}
+
+
+class RefocusBody(BaseModel):
+    prompt: str = Field(min_length=1, max_length=8000)
+
+
+@app.post("/agents/{run_id}/refocus", dependencies=[Depends(require_bearer)])
+async def refocus_agent(run_id: str, body: RefocusBody) -> dict:
+    mgr = get_agents()
+    new_run = await mgr.refocus(run_id, body.prompt)
+    if new_run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown run")
+    audit.record(
+        "agents.refocus",
+        "user",
+        {"old": run_id, "prompt_len": len(body.prompt)},
+        {"new": new_run.id},
+        ok=True,
+    )
+    return new_run.summary()
+
+
+class FanOutBody(BaseModel):
+    specs: list[AgentSpawnBody] = Field(min_length=1, max_length=8)
+
+
+@app.post("/agents/fan-out", dependencies=[Depends(require_bearer)])
+async def fan_out_agents(body: FanOutBody) -> dict:
+    mgr = get_agents()
+    specs = [
+        AgentSpec(
+            type=s.type,
+            prompt=s.prompt,
+            files=frozenset(s.files),
+            fallback_prompt=s.fallback_prompt,
+            cost_cap_usd=s.cost_cap_usd,
+            timeout_s=s.timeout_s,
+        )
+        for s in body.specs
+    ]
+    runs = await mgr.fan_out(specs)
+    audit.record(
+        "agents.fan_out",
+        "user",
+        {"count": len(specs), "types": [s.type for s in body.specs]},
+        {"ids": [r.id for r in runs]},
+        ok=True,
+    )
+    return {"runs": [r.summary() for r in runs]}
+
+
 def _voice_report(run_summary: dict) -> str:
     s = run_summary["status"]
     t = run_summary["type"]
