@@ -77,3 +77,36 @@ class MapsPlacesArgs(BaseModel):
     query: str = Field(min_length=1, max_length=500)
     near: str | None = Field(default=None, max_length=80)
     k: int = Field(default=5, ge=1, le=10)
+
+
+# --- Google Calendar tool --------------------------------------------
+
+
+class GCalListArgs(BaseModel):
+    within_hours: int = Field(default=72, ge=1, le=336)
+    max_results: int = Field(default=20, ge=1, le=50)
+
+
+class GCalCreateArgs(BaseModel):
+    summary: str = Field(min_length=1, max_length=400)
+    start_iso: str = Field(min_length=1, max_length=64)
+    end_iso: str = Field(min_length=1, max_length=64)
+    location: str | None = Field(default=None, max_length=400)
+    description: str | None = Field(default=None, max_length=8000)
+    confirm_token: str | None = None
+
+
+# --- Gmail tool -------------------------------------------------------
+
+
+class GmailDraftArgs(BaseModel):
+    to: str = Field(min_length=1, max_length=200)
+    subject: str = Field(min_length=1, max_length=998)
+    body: str = Field(max_length=50_000)
+
+
+class GmailSendArgs(BaseModel):
+    to: str = Field(min_length=1, max_length=200)
+    subject: str = Field(min_length=1, max_length=998)
+    body: str = Field(max_length=50_000)
+    confirm_token: str | None = None

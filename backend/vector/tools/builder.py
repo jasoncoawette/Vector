@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from ..memory import MemoryStore
 from .files import FileGuard
+from .gcal import GCalClient
+from .ggmail import GmailClient as GmailApiClient
 from .maps import MapsClient
 from .obsidian import ObsidianVault
 from .registry import Registry, Tool
@@ -9,6 +11,10 @@ from .schemas import (
     FileDeleteArgs,
     FileReadArgs,
     FileWriteArgs,
+    GCalCreateArgs,
+    GCalListArgs,
+    GmailDraftArgs,
+    GmailSendArgs,
     MapsDirectionsArgs,
     MapsGeocodeArgs,
     MapsPlacesArgs,
@@ -37,6 +43,11 @@ OBSIDIAN_WRITE_TYPES = frozenset({"research", "writer"})
 # really need it (researching a route, drafting "meet me at" text).
 # Code / tester / security have no business hitting the maps API.
 MAPS_TYPES = frozenset({"research", "writer"})
+
+# Google Calendar + Gmail: productivity. Same gating as Maps; both go
+# through ConfirmGate for any mutation (gcal.create_event, gmail.send).
+GCAL_TYPES = frozenset({"research", "writer"})
+GMAIL_TYPES = frozenset({"research", "writer"})
 
 
 def _add_file_tools(reg: Registry, guard: FileGuard) -> None:
@@ -164,6 +175,72 @@ def _add_obsidian_write(reg: Registry, vault: ObsidianVault) -> None:
     )
 
 
+def _add_gcal_tools(reg: Registry, gcal: GCalClient) -> None:
+    reg.register(
+        Tool(
+            name="gcal.list_upcoming",
+            schema=GCalListArgs,
+            handler=lambda a: gcal.list_upcoming(
+                within_hours=a.within_hours, max_results=a.max_results
+            ),
+            description="List Google Calendar events in the next within_hours window.",
+        )
+    )
+
+    def _create(args: GCalCreateArgs):
+        return gcal.create_event(
+            summary=args.summary,
+            start_iso=args.start_iso,
+            end_iso=args.end_iso,
+            location=args.location,
+            description=args.description,
+            confirm_token=args.confirm_token,
+        )
+
+    reg.register(
+        Tool(
+            name="gcal.create_event",
+            schema=GCalCreateArgs,
+            handler=_create,
+            description=(
+                "Create a calendar event. First call returns a needs_confirm token; "
+                "second call with confirm_token actually writes."
+            ),
+        )
+    )
+
+
+def _add_gmail_tools(reg: Registry, gmail: GmailApiClient) -> None:
+    reg.register(
+        Tool(
+            name="gmail.draft",
+            schema=GmailDraftArgs,
+            handler=lambda a: gmail.draft(to=a.to, subject=a.subject, body=a.body),
+            description="Create a Gmail draft (no send). Safe for preview.",
+        )
+    )
+
+    def _send(args: GmailSendArgs):
+        return gmail.send(
+            to=args.to,
+            subject=args.subject,
+            body=args.body,
+            confirm_token=args.confirm_token,
+        )
+
+    reg.register(
+        Tool(
+            name="gmail.send",
+            schema=GmailSendArgs,
+            handler=_send,
+            description=(
+                "Send a Gmail message. First call returns a needs_confirm token; "
+                "second call with confirm_token actually sends."
+            ),
+        )
+    )
+
+
 def _add_maps_tools(reg: Registry, maps: MapsClient) -> None:
     reg.register(
         Tool(
@@ -204,6 +281,8 @@ def build_registry_for(
     memory: MemoryStore | None = None,
     obsidian: ObsidianVault | None = None,
     maps: MapsClient | None = None,
+    gcal: GCalClient | None = None,
+    gmail: GmailApiClient | None = None,
 ) -> Registry:
     """Return a registry scoped to one agent type's tool needs.
 
@@ -226,4 +305,8 @@ def build_registry_for(
             _add_obsidian_write(reg, obsidian)
     if maps is not None and (agent_type in MAPS_TYPES or agent_type is None):
         _add_maps_tools(reg, maps)
+    if gcal is not None and (agent_type in GCAL_TYPES or agent_type is None):
+        _add_gcal_tools(reg, gcal)
+    if gmail is not None and (agent_type in GMAIL_TYPES or agent_type is None):
+        _add_gmail_tools(reg, gmail)
     return reg

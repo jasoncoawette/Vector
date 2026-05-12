@@ -26,6 +26,9 @@ _obsidian = None  # ObsidianVault | None (avoid hard import at module load)
 _maps = None  # MapsClient | None
 _oauth_flow = None  # OAuthFlow | None
 _token_store = None  # TokenStore | None
+_google_api = None  # GoogleApiClient | None (shared by gcal + gmail)
+_gcal = None  # GCalClient | None
+_gmail = None  # GmailApiClient | None
 _session_factory: "callable[[], VoiceSession] | None" = None
 
 
@@ -159,6 +162,71 @@ def set_oauth_flow(flow) -> None:
     _oauth_flow = flow
 
 
+def get_google_api():
+    """Shared authenticated Google API client for Calendar + Gmail.
+
+    Returns None when OAuth isn't configured or no account is
+    authorized — callers degrade by omitting the tools."""
+    global _google_api
+    if _google_api is None:
+        s = get_settings()
+        if not s.google_oauth_client_id or not s.google_oauth_client_secret:
+            return None
+        store = get_token_store()
+        if store is None or not store.list_accounts():
+            return None
+        from .tools.google_api import GoogleApiClient
+
+        _google_api = GoogleApiClient(
+            store=store,
+            client_id=s.google_oauth_client_id,
+            client_secret=s.google_oauth_client_secret,
+        )
+    return _google_api
+
+
+def set_google_api(client) -> None:
+    global _google_api, _gcal, _gmail
+    _google_api = client
+    # Invalidate downstream clients so they rebuild against the new api.
+    _gcal = None
+    _gmail = None
+
+
+def get_gcal():
+    global _gcal
+    if _gcal is None:
+        api = get_google_api()
+        if api is None:
+            return None
+        from .tools.gcal import GCalClient
+
+        _gcal = GCalClient(api=api)
+    return _gcal
+
+
+def set_gcal(client) -> None:
+    global _gcal
+    _gcal = client
+
+
+def get_gmail_client():
+    global _gmail
+    if _gmail is None:
+        api = get_google_api()
+        if api is None:
+            return None
+        from .tools.ggmail import GmailClient as GmailApiClient
+
+        _gmail = GmailApiClient(api=api)
+    return _gmail
+
+
+def set_gmail_client(client) -> None:
+    global _gmail
+    _gmail = client
+
+
 def _registry_factory(agent_type: str):
     return build_registry_for(
         agent_type,
@@ -166,6 +234,8 @@ def _registry_factory(agent_type: str):
         memory=get_memory(),
         obsidian=get_obsidian(),
         maps=get_maps(),
+        gcal=get_gcal(),
+        gmail=get_gmail_client(),
     )
 
 
