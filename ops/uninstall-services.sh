@@ -6,7 +6,7 @@ set -euo pipefail
 
 LAUNCH_DIR="$HOME/Library/LaunchAgents"
 
-for label in industries.stratus.vector.backend industries.stratus.vector.snapshot; do
+for label in industries.stratus.vector.backend industries.stratus.vector.snapshot industries.stratus.vector.watchdog; do
     DST="$LAUNCH_DIR/$label.plist"
     if [[ -f "$DST" ]]; then
         launchctl unload "$DST" 2>/dev/null || true

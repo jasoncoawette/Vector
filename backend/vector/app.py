@@ -12,6 +12,7 @@ from fastapi import (
     Header,
     HTTPException,
     Request,
+    Response,
     WebSocket,
     WebSocketDisconnect,
     status,
@@ -103,7 +104,63 @@ def set_registry(reg: Registry | None) -> None:
 
 @app.get("/healthz")
 def healthz() -> dict:
+    """Liveness probe — cheap, always returns 200 if the event loop is
+    answering. Use /health/deep for the dependency check."""
     return {"ok": True, "build": get_settings().build_hash}
+
+
+@app.get("/health/deep")
+def health_deep(response: Response) -> dict:
+    """Readiness probe. Checks every dependency Vector needs to run:
+    DB connectivity, integrity, workspace writability, audit sink.
+    Returns 503 with a JSON body describing the first failure when
+    any check fails so a watchdog can restart the process."""
+    from .store import integrity as integrity_store
+
+    checks: dict[str, dict] = {}
+    overall_ok = True
+
+    # 1. DB ping + integrity (cheap PRAGMA quick_check).
+    try:
+        db = get_db()
+        row = db.execute("PRAGMA quick_check").fetchone()
+        if row and row[0] == "ok":
+            checks["db"] = {"ok": True}
+        else:
+            checks["db"] = {
+                "ok": False,
+                "reason": f"quick_check={row[0] if row else 'no row'}",
+            }
+            overall_ok = False
+    except Exception as e:  # noqa: BLE001
+        checks["db"] = {"ok": False, "reason": f"{type(e).__name__}: {e}"}
+        overall_ok = False
+
+    # 2. Workspace writable.
+    try:
+        ws = get_settings().workspace
+        ws.mkdir(parents=True, exist_ok=True)
+        probe = ws / ".health-probe"
+        probe.write_text("ok")
+        probe.unlink()
+        checks["workspace"] = {"ok": True, "path": str(ws)}
+    except Exception as e:  # noqa: BLE001
+        checks["workspace"] = {"ok": False, "reason": f"{type(e).__name__}: {e}"}
+        overall_ok = False
+
+    # 3. Audit sink reachable (sink might be None pre-startup in tests).
+    sink_ok = audit._sink is not None  # type: ignore[attr-defined]
+    checks["audit"] = {"ok": sink_ok}
+    if not sink_ok:
+        overall_ok = False
+
+    if not overall_ok:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    return {
+        "ok": overall_ok,
+        "checks": checks,
+        "build": get_settings().build_hash,
+    }
 
 
 @app.get("/config")

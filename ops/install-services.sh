@@ -38,7 +38,7 @@ else
 fi
 
 # --- plists ---------------------------------------------------------
-for label in industries.stratus.vector.backend industries.stratus.vector.snapshot; do
+for label in industries.stratus.vector.backend industries.stratus.vector.snapshot industries.stratus.vector.watchdog; do
     SRC="$REPO_DIR/ops/$label.plist"
     DST="$LAUNCH_DIR/$label.plist"
     sed -e "s|__HOME__|$HOME|g" -e "s|__REPO__|$REPO_DIR|g" "$SRC" > "$DST"
