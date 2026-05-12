@@ -153,6 +153,37 @@ describe('routing api', () => {
   });
 });
 
+describe('costs api', () => {
+  it('fetchCosts returns rollup payload', async () => {
+    const fakeFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        today_usd: 0.42,
+        today_runs: 3,
+        week_usd: 1.5,
+        week_runs: 12,
+        month_usd: 5.0,
+        month_runs: 40,
+        daily_budget_usd: 2.0,
+        over_budget_today: false,
+        daily: [{ day: '2026-05-12', total_usd: 0.42, runs: 3, by_type: { code: 0.4 } }],
+        by_tier: [{ tier: 'haiku', decisions: 10, total_usd: 0.01, mean_usd: 0.001 }]
+      })
+    });
+    const { fetchCosts } = await import('./api');
+    const r = await fetchCosts(14, fakeFetch as unknown as typeof fetch);
+    expect(r.today_usd).toBeCloseTo(0.42);
+    expect(r.by_tier[0].tier).toBe('haiku');
+  });
+
+  it('fetchCosts throws on error', async () => {
+    const fakeFetch = vi.fn().mockResolvedValue({ ok: false, status: 500 });
+    const { fetchCosts } = await import('./api');
+    await expect(fetchCosts(14, fakeFetch as unknown as typeof fetch)).rejects.toThrow();
+  });
+});
+
 describe('agents api', () => {
   it('listAgents returns runs array', async () => {
     const fakeFetch = vi.fn().mockResolvedValue({

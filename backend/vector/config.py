@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     turn_timeout_s: int = 30
     loop_call_cap: int = 5
     auto_security_review: bool = True
+    # Daily spend budget across all agents + verifier; the /costs view
+    # raises `over_budget_today` once today's total exceeds this. 0 = off.
+    daily_budget_usd: float = 0.0
 
     safe_browser_hosts: tuple[str, ...] = Field(
         default=(

@@ -238,3 +238,39 @@ export async function fetchRoutingLog(
   const body = (await r.json()) as { entries: RoutingLogEntry[] };
   return body.entries;
 }
+
+export interface CostDay {
+  day: string;
+  total_usd: number;
+  runs: number;
+  by_type: Record<string, number>;
+}
+
+export interface CostTier {
+  tier: 'haiku' | 'sonnet' | 'opus';
+  decisions: number;
+  total_usd: number;
+  mean_usd: number;
+}
+
+export interface CostSummary {
+  today_usd: number;
+  today_runs: number;
+  week_usd: number;
+  week_runs: number;
+  month_usd: number;
+  month_runs: number;
+  daily_budget_usd: number;
+  over_budget_today: boolean;
+  daily: CostDay[];
+  by_tier: CostTier[];
+}
+
+export async function fetchCosts(
+  historyDays = 14,
+  fetcher: typeof fetch = fetch
+): Promise<CostSummary> {
+  const r = await fetcher(`${BACKEND}/costs?history_days=${historyDays}`);
+  if (!r.ok) throw new Error(`costs failed: ${r.status}`);
+  return (await r.json()) as CostSummary;
+}

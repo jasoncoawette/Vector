@@ -757,3 +757,43 @@ def get_persisted_run(run_id: str) -> dict:
     if r is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown run")
     return _serialize_stored_run(r)
+
+
+@app.get("/costs")
+def get_costs(history_days: int = 14) -> dict:
+    from .voice.costs import summarize
+
+    s = get_settings()
+    summary = summarize(
+        get_db(),
+        daily_budget_usd=s.daily_budget_usd,
+        history_days=history_days,
+    )
+    return {
+        "today_usd": round(summary.today_usd, 4),
+        "today_runs": summary.today_runs,
+        "week_usd": round(summary.week_usd, 4),
+        "week_runs": summary.week_runs,
+        "month_usd": round(summary.month_usd, 4),
+        "month_runs": summary.month_runs,
+        "daily_budget_usd": summary.daily_budget_usd,
+        "over_budget_today": summary.over_budget_today,
+        "daily": [
+            {
+                "day": d.day,
+                "total_usd": round(d.total_usd, 4),
+                "runs": d.runs,
+                "by_type": {k: round(v, 4) for k, v in d.by_type.items()},
+            }
+            for d in summary.daily
+        ],
+        "by_tier": [
+            {
+                "tier": t.tier,
+                "decisions": t.decisions,
+                "total_usd": round(t.total_usd, 4),
+                "mean_usd": round(t.mean_usd, 6),
+            }
+            for t in summary.by_tier
+        ],
+    }
