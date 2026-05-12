@@ -82,6 +82,15 @@ _MIGRATIONS: list[str] = [
         reason TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts DESC);
+    CREATE TABLE IF NOT EXISTS choke_points (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        week TEXT NOT NULL,
+        rank INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        note TEXT,
+        recorded_at REAL NOT NULL,
+        UNIQUE(week, rank)
+    );
     """,
 ]
 

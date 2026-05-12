@@ -129,6 +129,31 @@ export async function fetchAudit(
   return body.entries;
 }
 
+export interface MissionPoint {
+  value: number;
+  recorded_at: number;
+}
+
+export interface ChokePoint {
+  rank: number;
+  title: string;
+  note: string | null;
+}
+
+export interface MissionResponse {
+  week: string;
+  series: Record<string, MissionPoint[]>;
+  choke_points: ChokePoint[];
+}
+
+export async function fetchMission(
+  fetcher: typeof fetch = fetch
+): Promise<MissionResponse> {
+  const r = await fetcher(`${BACKEND}/mission`);
+  if (!r.ok) throw new Error(`mission failed: ${r.status}`);
+  return (await r.json()) as MissionResponse;
+}
+
 const CACHE_PREFIX = 'vector.cache.';
 const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
 

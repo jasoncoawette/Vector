@@ -9,10 +9,13 @@ from pydantic import BaseModel, Field
 
 from . import audit
 from .agents.types import AgentSpec, AgentType, RunStatus
+from .auth import require_bearer
 from .config import get_settings
 from .deps import get_agents, get_db
 from .engine import brief as brief_mod
+from .engine import mission as mission_eng
 from .engine import picker, review
+from .engine import weekly as weekly_eng
 from .store import metrics as metrics_store
 from .store import tasks as tasks_repo
 from .tools.builder import build_default_registry
@@ -151,7 +154,7 @@ class OverrideBody(BaseModel):
     added_task_id: int
 
 
-@app.post("/daily/override")
+@app.post("/daily/override", dependencies=[Depends(require_bearer)])
 def daily_override(body: OverrideBody) -> dict:
     conn = get_db()
     weights = picker.record_override(
@@ -260,7 +263,7 @@ class AgentSpawnBody(BaseModel):
     timeout_s: int = Field(default=600, ge=1, le=3600)
 
 
-@app.post("/agents/spawn")
+@app.post("/agents/spawn", dependencies=[Depends(require_bearer)])
 async def spawn_agent(body: AgentSpawnBody) -> dict:
     mgr = get_agents()
     spec = AgentSpec(
@@ -295,7 +298,7 @@ class AgentKillBody(BaseModel):
     reason: str = Field(default="killed by user", max_length=200)
 
 
-@app.post("/agents/{run_id}/kill")
+@app.post("/agents/{run_id}/kill", dependencies=[Depends(require_bearer)])
 async def kill_agent(run_id: str, body: AgentKillBody) -> dict:
     mgr = get_agents()
     if mgr.get(run_id) is None:
@@ -331,3 +334,62 @@ def agent_report(run_id: str) -> dict:
 @app.get("/audit")
 def get_audit(limit: int = 100) -> dict:
     return {"entries": audit.tail(get_db(), limit=limit)}
+
+
+@app.get("/mission")
+def get_mission(week: str | None = None) -> dict:
+    conn = get_db()
+    mission_eng.seed_mission_baseline(conn)
+    series: dict[str, list[dict]] = {}
+    for name in mission_eng.MISSION_METRIC_NAMES:
+        history = metrics_store.history(conn, "mission", name, limit=52)
+        series[name] = [
+            {"value": p.value, "recorded_at": p.recorded_at}
+            for p in reversed(history)
+        ]
+    target_week = week or _current_week_iso()
+    choke = mission_eng.list_choke_points(conn, target_week)
+    return {
+        "week": target_week,
+        "series": series,
+        "choke_points": [
+            {"rank": p.rank, "title": p.title, "note": p.note} for p in choke
+        ],
+    }
+
+
+class ChokePointBody(BaseModel):
+    week: str = Field(min_length=1)
+    rank: int = Field(ge=1, le=3)
+    title: str = Field(min_length=1, max_length=200)
+    note: str | None = Field(default=None, max_length=1000)
+
+
+@app.post("/mission/choke-points", dependencies=[Depends(require_bearer)])
+def post_choke_point(body: ChokePointBody) -> dict:
+    conn = get_db()
+    try:
+        cid = mission_eng.upsert_choke_point(
+            conn, week=body.week, rank=body.rank, title=body.title, note=body.note
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+    return {"id": cid}
+
+
+def _current_week_iso() -> str:
+    iso = datetime.now().isocalendar()
+    return f"{iso.year}-W{iso.week:02d}"
+
+
+@app.get("/weekly/brief")
+def weekly_brief() -> dict:
+    summary = weekly_eng.render_weekly(get_db(), now=datetime.now())
+    return {
+        "week": summary.week,
+        "text": summary.text,
+        "shipped": summary.shipped,
+        "slipped": summary.slipped,
+        "choke_points": summary.choke_points,
+        "deltas": summary.metric_deltas,
+    }
