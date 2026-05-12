@@ -189,14 +189,13 @@ def _build_brain() -> Brain | None:
     client = _build_anthropic_client(s.anthropic_api_key)
     if client is None:
         return None
+    from .prompts import VOICE_BRAIN_SYSTEM
+
     return ClaudeBrain(
         api_key=s.anthropic_api_key,
         model=s.brain_model_hot,
         client=client,
-        system=(
-            "You are Vector, Jason's local voice assistant. "
-            "Reply in one or two sentences unless asked for more."
-        ),
+        system=VOICE_BRAIN_SYSTEM,
     )
 
 

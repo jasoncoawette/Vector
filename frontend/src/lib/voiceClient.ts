@@ -25,6 +25,7 @@ export type VoiceEventKind =
   | 'state'
   | 'transcript'
   | 'reply'
+  | 'clarify'
   | 'bargein'
   | 'error';
 

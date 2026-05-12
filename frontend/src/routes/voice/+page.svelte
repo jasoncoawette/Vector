@@ -86,6 +86,10 @@
       transcript = e.text;
     } else if (e.kind === 'reply' && e.text) {
       reply = e.text;
+    } else if (e.kind === 'clarify' && e.text) {
+      // Brain is asking the user for more detail; treat as reply with a
+      // marker so the UI can hint to push-to-talk again immediately.
+      reply = `❓ ${e.text}`;
     } else if (e.kind === 'bargein') {
       voice.toListen();
     } else if (e.kind === 'error') {

@@ -11,6 +11,8 @@ import json
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Protocol
 
+from ..prompts import VERIFIER_SYSTEM
+
 
 @dataclass
 class Verdict:
@@ -21,14 +23,6 @@ class Verdict:
 
 class Verifier(Protocol):
     async def check(self, criteria: str, output: str) -> Verdict: ...
-
-
-VERIFIER_SYSTEM = (
-    "You are a strict acceptance checker. Given a success criterion and an "
-    "agent's output, answer in this JSON shape exactly: "
-    '{"success": true|false, "reason": "<one short sentence>"}. '
-    "Pass only if the criterion is clearly met. When in doubt, fail and say why."
-)
 
 
 class FakeVerifier:

@@ -108,9 +108,21 @@ class VoiceSession:
             yield VoiceEvent(kind="state", state=VoiceState.IDLE)
             return
 
+        # Clarification path: the brain prefixed [CLARIFY] to signal that
+        # it would need to guess to answer fully. Speak the question, then
+        # land back in LISTEN so the user's follow-up opens a new turn.
+        from ..prompts import needs_clarification, strip_clarify_marker
+
+        clarifying = needs_clarification(spoken)
+        if clarifying:
+            spoken = strip_clarify_marker(spoken)
+
         self._state = VoiceState.SPEAK
         yield VoiceEvent(kind="state", state=VoiceState.SPEAK)
-        yield VoiceEvent(kind="reply", text=spoken)
+        yield VoiceEvent(
+            kind="clarify" if clarifying else "reply",
+            text=spoken,
+        )
 
         try:
             async for audio_chunk in self.tts.stream(spoken):
@@ -123,6 +135,13 @@ class VoiceSession:
         except Exception as e:
             self._state = VoiceState.ERROR
             yield VoiceEvent(kind="error", error=f"tts: {e}", state=VoiceState.ERROR)
+            return
+
+        # After a clarification we go back to LISTEN, not IDLE, so the
+        # WS client knows the next mic chunk is the user's answer.
+        if clarifying:
+            self._state = VoiceState.LISTEN
+            yield VoiceEvent(kind="state", state=VoiceState.LISTEN)
             return
 
         self._state = VoiceState.IDLE
