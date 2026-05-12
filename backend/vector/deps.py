@@ -11,6 +11,7 @@ from .memory import HashEmbedder, MemoryStore, SqliteMemoryStore
 from .store import connect
 from .tools.builder import build_registry_for
 from .tools.files import FileGuard
+from .plans import PlanRunner
 from .voice.brain import Brain, ClaudeBrain
 from .voice.session import VoiceSession
 from .voice.stt import STT, WhisperSTT
@@ -18,6 +19,7 @@ from .voice.tts import TTS, ElevenLabsTTS, PiperFallbackTTS
 
 _conn: sqlite3.Connection | None = None
 _agents: AgentManager | None = None
+_plans: PlanRunner | None = None
 _memory: MemoryStore | None = None
 _file_guard: FileGuard | None = None
 _session_factory: "callable[[], VoiceSession] | None" = None
@@ -166,6 +168,19 @@ def get_agents() -> AgentManager:
 def set_agents(mgr: AgentManager | None) -> None:
     global _agents
     _agents = mgr
+
+
+def get_plans() -> PlanRunner:
+    """Lazily build a PlanRunner that drives the existing AgentManager."""
+    global _plans
+    if _plans is None:
+        _plans = PlanRunner(manager=get_agents())
+    return _plans
+
+
+def set_plans(runner: PlanRunner | None) -> None:
+    global _plans
+    _plans = runner
 
 
 def _build_stt() -> STT:

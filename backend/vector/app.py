@@ -867,6 +867,47 @@ def get_costs(history_days: int = 14) -> dict:
 
 
 # ---------------------------------------------------------------------
+# Plans (DAG execution). Endpoints land here, before the static mount.
+# ---------------------------------------------------------------------
+from .deps import get_plans  # noqa: E402
+from .plans.schema import PlanIn, build_plan  # noqa: E402
+from .plans.types import PlanValidationError  # noqa: E402
+
+
+@app.post("/plans", dependencies=[Depends(require_bearer)])
+async def submit_plan(body: PlanIn) -> dict:
+    try:
+        plan = build_plan(body)
+    except PlanValidationError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+    runner = get_plans()
+    # submit() registers the run synchronously and schedules execution
+    # as a background task, so the snapshot is queryable immediately.
+    plan_run = runner.submit(plan)
+    audit.record(
+        "plans.submit",
+        "user",
+        {"goal": body.goal[:200], "steps": len(body.steps)},
+        {"plan_id": plan.id},
+        ok=True,
+    )
+    return plan_run.to_dict()
+
+
+@app.get("/plans")
+def list_plans() -> dict:
+    return {"plans": [pr.to_dict() for pr in get_plans().list_runs()]}
+
+
+@app.get("/plans/{plan_id}")
+def get_plan(plan_id: str) -> dict:
+    pr = get_plans().get(plan_id)
+    if pr is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown plan")
+    return pr.to_dict()
+
+
+# ---------------------------------------------------------------------
 # Static frontend bundle. Must be registered LAST so every /<api> route
 # above wins the path match. Looks for frontend/build next to backend/;
 # if it doesn't exist (fresh checkout, frontend not built yet), we skip

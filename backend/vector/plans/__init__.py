@@ -1,3 +1,4 @@
+from .executor import PlanRunner
 from .types import (
     Plan,
     PlanRun,
@@ -11,6 +12,7 @@ from .types import (
 __all__ = [
     "Plan",
     "PlanRun",
+    "PlanRunner",
     "PlanStatus",
     "Step",
     "StepRun",
