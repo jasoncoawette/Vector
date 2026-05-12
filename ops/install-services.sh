@@ -3,7 +3,8 @@
 #
 # What this does:
 #   1. Builds the venv at .venv if missing (pip install -e backend[dev])
-#   2. Builds the frontend static bundle (npm install + run build)
+#   2. Builds the frontend static bundle (pnpm install + pnpm build,
+#      falls back to npm if pnpm isn't on PATH)
 #   3. Substitutes __HOME__ and __REPO__ into the plist templates
 #   4. Copies them to ~/Library/LaunchAgents/
 #   5. launchctl loads both (backend + snapshot)
@@ -30,11 +31,14 @@ pip install -e "$REPO_DIR/backend"
 deactivate
 
 # --- frontend build -------------------------------------------------
-if command -v npm >/dev/null 2>&1; then
-    echo "==> building frontend"
+if command -v pnpm >/dev/null 2>&1; then
+    echo "==> building frontend with pnpm"
+    (cd "$REPO_DIR/frontend" && pnpm install --silent && pnpm build)
+elif command -v npm >/dev/null 2>&1; then
+    echo "warn: pnpm not found, falling back to npm" >&2
     (cd "$REPO_DIR/frontend" && npm install --silent && npm run build)
 else
-    echo "warn: npm not found; skipping frontend build" >&2
+    echo "warn: neither pnpm nor npm found; skipping frontend build" >&2
 fi
 
 # --- plists ---------------------------------------------------------

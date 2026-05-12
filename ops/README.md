@@ -33,7 +33,7 @@ bash ops/install-services.sh
 
 The install script is idempotent:
 1. Creates `.venv/` if missing and `pip install -e backend`
-2. `cd frontend && npm install && npm run build` so the backend can serve the bundle at `/`
+2. `cd frontend && pnpm install && pnpm build` so the backend can serve the bundle at `/`
 3. Substitutes `__HOME__` / `__REPO__` into the plist templates
 4. Copies them to `~/Library/LaunchAgents/` and `launchctl load -w`s each one
 

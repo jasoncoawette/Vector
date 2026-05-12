@@ -23,13 +23,13 @@ python -m vector       # serves on http://127.0.0.1:7777
 pytest                  # runs tests
 ```
 
-Frontend:
+Frontend (pnpm — `brew install pnpm` if you don't have it):
 
 ```
 cd frontend
-npm install
-npm run dev             # http://127.0.0.1:5173
-npm test                # vitest
+pnpm install
+pnpm dev                # http://127.0.0.1:5173
+pnpm test               # vitest
 ```
 
 Desktop shell (after frontend builds):
