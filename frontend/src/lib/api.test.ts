@@ -153,6 +153,92 @@ describe('routing api', () => {
   });
 });
 
+describe('plans api', () => {
+  it('listPlans returns the plans array', async () => {
+    const fakeFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        plans: [
+          {
+            plan: { id: 'plan-1', goal: 'g', steps: [], created_at: 1 },
+            status: 'done',
+            steps: [],
+            total_cost_usd: 0.1,
+            started_at: 0,
+            ended_at: 1,
+            error: ''
+          }
+        ]
+      })
+    });
+    const { listPlans } = await import('./api');
+    const out = await listPlans(fakeFetch as unknown as typeof fetch);
+    expect(out).toHaveLength(1);
+    expect(out[0].plan.id).toBe('plan-1');
+  });
+
+  it('fetchPlan url-encodes the plan id', async () => {
+    const fakeFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        plan: { id: 'p/x', goal: '', steps: [], created_at: 0 },
+        status: 'running',
+        steps: [],
+        total_cost_usd: 0,
+        started_at: 0,
+        ended_at: null,
+        error: ''
+      })
+    });
+    const { fetchPlan } = await import('./api');
+    await fetchPlan('p/x', fakeFetch as unknown as typeof fetch);
+    expect(fakeFetch).toHaveBeenCalledWith(expect.stringContaining('p%2Fx'));
+  });
+
+  it('submitPlan attaches bearer header when token given', async () => {
+    const fakeFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        plan: { id: 'p1', goal: '', steps: [], created_at: 0 },
+        status: 'running',
+        steps: [],
+        total_cost_usd: 0,
+        started_at: null,
+        ended_at: null,
+        error: ''
+      })
+    });
+    const { submitPlan } = await import('./api');
+    await submitPlan(
+      { goal: 'g', steps: [{ id: 1, agent: 'research', prompt: 'p' }] },
+      'tok',
+      fakeFetch as unknown as typeof fetch
+    );
+    const call = fakeFetch.mock.calls[0];
+    expect(call[1].method).toBe('POST');
+    expect(call[1].headers['Authorization']).toBe('Bearer tok');
+  });
+
+  it('submitPlan throws on non-200 with body text in the message', async () => {
+    const fakeFetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: async () => 'plan has a cycle'
+    });
+    const { submitPlan } = await import('./api');
+    await expect(
+      submitPlan(
+        { goal: 'g', steps: [{ id: 1, agent: 'code', prompt: 'p' }] },
+        null,
+        fakeFetch as unknown as typeof fetch
+      )
+    ).rejects.toThrow(/cycle/);
+  });
+});
+
 describe('costs api', () => {
   it('fetchCosts returns rollup payload', async () => {
     const fakeFetch = vi.fn().mockResolvedValue({

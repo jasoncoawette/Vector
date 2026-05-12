@@ -301,3 +301,110 @@ export async function fetchCosts(
   if (!r.ok) throw new Error(`costs failed: ${r.status}`);
   return (await r.json()) as CostSummary;
 }
+
+// Plans / DAG ----------------------------------------------------------
+
+export type PlanStepAgent =
+  | 'code'
+  | 'research'
+  | 'writer'
+  | 'tester'
+  | 'security';
+export type PlanStepStatus =
+  | 'pending'
+  | 'ready'
+  | 'running'
+  | 'done'
+  | 'failed'
+  | 'skipped';
+export type PlanStatus = 'pending' | 'running' | 'done' | 'failed' | 'partial';
+
+export interface PlanStepDef {
+  id: number;
+  agent: PlanStepAgent;
+  prompt: string;
+  depends_on: number[];
+  files: string[];
+  success_criteria: string | null;
+  cost_cap_usd: number;
+  timeout_s: number;
+  max_attempts: number;
+}
+
+export interface PlanDef {
+  id: string;
+  goal: string;
+  created_at: number;
+  steps: PlanStepDef[];
+}
+
+export interface StepRunSnapshot {
+  step_id: number;
+  status: PlanStepStatus;
+  output: string;
+  error: string;
+  cost_usd: number;
+  run_id: string | null;
+  started_at: number | null;
+  ended_at: number | null;
+}
+
+export interface PlanRunSnapshot {
+  plan: PlanDef;
+  status: PlanStatus;
+  steps: StepRunSnapshot[];
+  total_cost_usd: number;
+  started_at: number | null;
+  ended_at: number | null;
+  error: string;
+}
+
+export interface NewPlanStep {
+  id: number;
+  agent: PlanStepAgent;
+  prompt: string;
+  depends_on?: number[];
+  success_criteria?: string;
+}
+
+export interface NewPlan {
+  goal: string;
+  steps: NewPlanStep[];
+}
+
+export async function listPlans(
+  fetcher: typeof fetch = fetch
+): Promise<PlanRunSnapshot[]> {
+  const r = await fetcher(`${BACKEND}/plans`);
+  if (!r.ok) throw new Error(`list plans failed: ${r.status}`);
+  const body = (await r.json()) as { plans: PlanRunSnapshot[] };
+  return body.plans;
+}
+
+export async function fetchPlan(
+  planId: string,
+  fetcher: typeof fetch = fetch
+): Promise<PlanRunSnapshot> {
+  const r = await fetcher(`${BACKEND}/plans/${encodeURIComponent(planId)}`);
+  if (!r.ok) throw new Error(`fetch plan failed: ${r.status}`);
+  return (await r.json()) as PlanRunSnapshot;
+}
+
+export async function submitPlan(
+  plan: NewPlan,
+  token: string | null = null,
+  fetcher: typeof fetch = fetch
+): Promise<PlanRunSnapshot> {
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const r = await fetcher(`${BACKEND}/plans`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(plan)
+  });
+  if (!r.ok) {
+    const text = await r.text().catch(() => '');
+    throw new Error(`submit plan failed: ${r.status} ${text}`);
+  }
+  return (await r.json()) as PlanRunSnapshot;
+}
