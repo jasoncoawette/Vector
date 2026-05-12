@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Vector backend supervised by launchd.
+
+  - KeepAlive: relaunches on any non-zero exit
+  - ThrottleInterval: minimum 10s between restarts (crash-loop guard;
+    launchd will start aggressive backoff if we crash inside this window)
+  - RunAtLoad: starts on `launchctl load`
+  - LowPriorityIO: be a polite neighbor to other Mac mini work
+  - StandardOutPath / StandardErrorPath: JSON log stream lands here
+
+  Install:
+    bash ops/install-services.sh
+  Uninstall:
+    bash ops/uninstall-services.sh
+  Tail logs:
+    tail -f ~/Library/Logs/Vector/backend.err.log
+
+  Edit `__HOME__` and `__REPO__` to your paths. The install script
+  rewrites these placeholders for you.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>industries.stratus.vector.backend</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__REPO__/ops/run-backend.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__REPO__</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>VECTOR_LOG_FORMAT</key>
+        <string>json</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>LowPriorityIO</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>__HOME__/Library/Logs/Vector/backend.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>__HOME__/Library/Logs/Vector/backend.err.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
