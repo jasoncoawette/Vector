@@ -22,6 +22,8 @@ from pydantic import BaseModel, Field
 from . import audit
 from .agents.types import AgentSpec, AgentType, RunStatus
 from .auth import check_ws_bearer, require_bearer
+from .store import events as events_store
+from .tracing import trace
 from .voice.session import VoiceEvent, VoiceState
 from .config import get_settings
 from .deps import get_agents, get_db, new_voice_session
@@ -120,6 +122,17 @@ async def voice_stream(ws: WebSocket) -> None:
     if not await check_ws_bearer(ws):
         return
     await ws.accept()
+    # Bind a trace_id for this WebSocket connection. All audit, routing,
+    # and events rows emitted during the turn(s) inherit it.
+    with trace() as trace_id:
+        try:
+            events_store.emit(get_db(), "turn_start", meta={"trace_id": trace_id})
+        except Exception:  # noqa: BLE001 — never fail the turn over telemetry
+            pass
+        await _voice_stream_loop(ws)
+
+
+async def _voice_stream_loop(ws: WebSocket) -> None:
     session = new_voice_session()
     mic_queue: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=64)
 
@@ -361,8 +374,20 @@ async def spawn_agent(body: AgentSpawnBody) -> dict:
         cost_cap_usd=body.cost_cap_usd,
         timeout_s=body.timeout_s,
     )
-    run = await mgr.spawn(spec)
-    audit.record("agents.spawn", "user", body.model_dump(), {"id": run.id}, ok=True)
+    with trace() as trace_id:
+        run = await mgr.spawn(spec)
+        try:
+            events_store.emit(
+                get_db(),
+                "agent_spawn_request",
+                run_id=run.id,
+                meta={"type": body.type, "trace_id": trace_id},
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        audit.record(
+            "agents.spawn", "user", body.model_dump(), {"id": run.id}, ok=True
+        )
     return run.summary()
 
 
@@ -449,14 +474,27 @@ async def fan_out_agents(body: FanOutBody) -> dict:
         )
         for s in body.specs
     ]
-    runs = await mgr.fan_out(specs)
-    audit.record(
-        "agents.fan_out",
-        "user",
-        {"count": len(specs), "types": [s.type for s in body.specs]},
-        {"ids": [r.id for r in runs]},
-        ok=True,
-    )
+    with trace() as trace_id:
+        runs = await mgr.fan_out(specs)
+        try:
+            events_store.emit(
+                get_db(),
+                "agent_fan_out",
+                meta={
+                    "trace_id": trace_id,
+                    "count": len(specs),
+                    "ids": [r.id for r in runs],
+                },
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        audit.record(
+            "agents.fan_out",
+            "user",
+            {"count": len(specs), "types": [s.type for s in body.specs]},
+            {"ids": [r.id for r in runs]},
+            ok=True,
+        )
     return {"runs": [r.summary() for r in runs]}
 
 
@@ -555,6 +593,15 @@ async def linear_webhook(
     secret = get_settings().linear_webhook_secret
     if not secret:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "webhook not configured")
+    # Bind a trace_id for this webhook delivery so audit + events
+    # rows can be joined back to the inbound POST.
+    with trace():
+        return await _process_linear_webhook(request, linear_signature, secret)
+
+
+async def _process_linear_webhook(
+    request: Request, linear_signature: str | None, secret: str
+) -> dict:
     body = await request.body()
     try:
         verify_linear_signature(body, signature=linear_signature, secret=secret)
@@ -597,3 +644,52 @@ def routing_stats() -> dict:
 @app.get("/routing/log")
 def routing_log(limit: int = 100) -> dict:
     return {"entries": recent_decisions(get_db(), limit=limit)}
+
+
+def _serialize_event(e) -> dict:
+    return {
+        "id": e.id,
+        "ts": e.ts,
+        "trace_id": e.trace_id,
+        "run_id": e.run_id,
+        "kind": e.kind,
+        "cost_delta": e.cost_delta,
+        "latency_ms": e.latency_ms,
+        "meta": e.meta,
+    }
+
+
+@app.get("/events")
+def get_events(limit: int = 200) -> dict:
+    return {
+        "events": [_serialize_event(e) for e in events_store.recent(get_db(), limit=limit)]
+    }
+
+
+@app.get("/trace/{trace_id}")
+def get_trace(trace_id: str) -> dict:
+    """Reconstruct a full chain by trace_id: events + audit rows + routing."""
+    db = get_db()
+    events = events_store.by_trace(db, trace_id)
+    audit_rows = [
+        dict(r)
+        for r in db.execute(
+            "SELECT ts, tool, caller, ok, reason FROM audit_log "
+            "WHERE trace_id = ? ORDER BY ts ASC",
+            (trace_id,),
+        ).fetchall()
+    ]
+    routing_rows = [
+        dict(r)
+        for r in db.execute(
+            "SELECT ts, agent_type, tier, model, score, source, outcome, cost_usd "
+            "FROM routing_log WHERE trace_id = ? ORDER BY ts ASC",
+            (trace_id,),
+        ).fetchall()
+    ]
+    return {
+        "trace_id": trace_id,
+        "events": [_serialize_event(e) for e in events],
+        "audit": audit_rows,
+        "routing": routing_rows,
+    }

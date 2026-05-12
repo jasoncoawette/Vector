@@ -52,6 +52,7 @@ class Run:
     queued_at: float = field(default_factory=time.time)
     started_at: float | None = None
     ended_at: float | None = None
+    trace_id: str | None = None
     _task: asyncio.Task | None = field(default=None, repr=False)
 
     @property
@@ -79,6 +80,7 @@ class Run:
             "files": sorted(self.spec.files),
             "output": self.output[:4000],
             "error": self.error,
+            "trace_id": self.trace_id,
         }
 
 

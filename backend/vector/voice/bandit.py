@@ -5,6 +5,7 @@ import sqlite3
 import time
 from dataclasses import dataclass
 
+from ..tracing import current_trace_id
 from .routing import (
     THRESH_HARD,
     THRESH_SIMPLE,
@@ -132,8 +133,8 @@ def log_decision(
 ) -> int:
     cur = conn.execute(
         """
-        INSERT INTO routing_log(ts, agent_type, tier, model, score, source)
-        VALUES(?, ?, ?, ?, ?, ?)
+        INSERT INTO routing_log(ts, agent_type, tier, model, score, source, trace_id)
+        VALUES(?, ?, ?, ?, ?, ?, ?)
         """,
         (
             _now(),
@@ -142,6 +143,7 @@ def log_decision(
             decision.model,
             decision.score,
             decision.source,
+            current_trace_id(),
         ),
     )
     return int(cur.lastrowid)

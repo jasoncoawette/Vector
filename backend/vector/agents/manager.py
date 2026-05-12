@@ -4,6 +4,7 @@ import asyncio
 import time
 
 from ..hooks import HookRegistry, get_hooks
+from ..tracing import current_trace_id, new_trace_id
 from .types import (
     AgentSpec,
     Executor,
@@ -45,7 +46,11 @@ class AgentManager:
         return self._runs.get(run_id)
 
     async def spawn(self, spec: AgentSpec) -> Run:
-        run = Run(id=make_run_id(), spec=spec)
+        # Inherit the caller's trace if one is bound (e.g. fan-out from a
+        # voice turn); otherwise mint a fresh one so every run is
+        # joinable to its events later.
+        tid = current_trace_id() or new_trace_id()
+        run = Run(id=make_run_id(), spec=spec, trace_id=tid)
         self._runs[run.id] = run
         run._task = asyncio.create_task(self._drive(run))
         return run
@@ -87,25 +92,32 @@ class AgentManager:
         return run
 
     async def _drive(self, run: Run) -> None:
-        try:
-            await self._acquire_slot(run)
+        # Re-bind the run's trace_id into context so emitters inside the
+        # executor (audit, bandit, events) see the right id.
+        from ..tracing import trace as _trace
+
+        with _trace(run.trace_id):
             try:
-                await self._run_once(run, run.spec.prompt, fallback=False)
-                if run.status == RunStatus.FAILED and run.spec.fallback_prompt:
-                    run.fallback_used = True
-                    run.status = RunStatus.RUNNING
-                    run.error = ""
-                    await self._run_once(run, run.spec.fallback_prompt, fallback=True)
-            finally:
-                await self._release_files(run.spec.files)
-                async with self._slot:
-                    self._running -= 1
-                    self._slot.notify_all()
+                await self._acquire_slot(run)
+                try:
+                    await self._run_once(run, run.spec.prompt, fallback=False)
+                    if run.status == RunStatus.FAILED and run.spec.fallback_prompt:
+                        run.fallback_used = True
+                        run.status = RunStatus.RUNNING
+                        run.error = ""
+                        await self._run_once(
+                            run, run.spec.fallback_prompt, fallback=True
+                        )
+                finally:
+                    await self._release_files(run.spec.files)
+                    async with self._slot:
+                        self._running -= 1
+                        self._slot.notify_all()
+                    await self._hooks.emit("agent_complete", {"run": run.summary()})
+            except asyncio.CancelledError:
+                run.status = RunStatus.KILLED
+                run.ended_at = run.ended_at or time.time()
                 await self._hooks.emit("agent_complete", {"run": run.summary()})
-        except asyncio.CancelledError:
-            run.status = RunStatus.KILLED
-            run.ended_at = run.ended_at or time.time()
-            await self._hooks.emit("agent_complete", {"run": run.summary()})
 
     async def _acquire_slot(self, run: Run) -> None:
         async with self._slot:
