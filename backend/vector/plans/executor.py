@@ -73,16 +73,21 @@ class PlanRunner:
     def list_runs(self) -> list[PlanRun]:
         return list(self._runs.values())
 
-    def submit(self, plan: Plan) -> PlanRun:
-        """Validate + register the plan synchronously and schedule the
-        async work as a background task. Returns the in-memory PlanRun
-        immediately so `/plans/{id}` is queryable before the first step
-        even starts.
+    def submit(self, plan: Plan) -> tuple[PlanRun, "Awaitable[None]"]:
+        """Validate + register the plan synchronously. Returns the
+        in-memory PlanRun AND the coroutine that runs it.
 
-        Use this from request handlers. Use `execute()` from tests."""
+        The caller is responsible for scheduling the coroutine (typically
+        via FastAPI's BackgroundTasks). We don't asyncio.create_task() it
+        here because if `submit()` is called from inside a FastAPI route
+        handler, the request's anyio task group will cancel any child
+        task as soon as the handler returns the response — killing the
+        plan before its first wave completes.
+
+        Tests can `asyncio.create_task(coro)` from outside any TaskGroup
+        and the plan runs fine; that's what `execute()` does."""
         plan_run = self._register(plan)
-        asyncio.create_task(self._run(plan_run))
-        return plan_run
+        return plan_run, self._run(plan_run)
 
     async def execute(self, plan: Plan) -> PlanRun:
         """Run a plan to completion. Returns the final PlanRun."""

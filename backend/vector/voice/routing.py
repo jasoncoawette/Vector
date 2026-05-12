@@ -63,7 +63,7 @@ TIER_MODELS: dict[Tier, str] = {
 }
 
 THRESH_SIMPLE = 0.30
-THRESH_HARD = 0.70
+THRESH_HARD = 0.55
 
 
 @dataclass
@@ -95,9 +95,9 @@ def complexity_score(prompt: str, *, agent_type: str | None = None) -> tuple[flo
 
     score = (
         0.20 * feats["length"]
-        + 0.30 * feats["hard_kw"]
-        + 0.10 * feats["medium_kw"]
-        - 0.20 * feats["simple_kw"]
+        + 0.60 * feats["hard_kw"]
+        + 0.50 * feats["medium_kw"]
+        - 0.30 * feats["simple_kw"]
         + 0.10 * feats["has_code"]
         + 0.15 * feats["agent_code"]
         + 0.20 * feats["agent_security"]

@@ -46,10 +46,24 @@ def _load_key(b64: str) -> bytes:
 
 
 def _try_aes_gcm():
-    """Return (encrypt_fn, decrypt_fn) using AES-GCM, or None if unavailable."""
+    """Return (encrypt_fn, decrypt_fn) using AES-GCM, or None if unavailable.
+
+    We deliberately catch BaseException here. The `cryptography` package
+    can be partially installed (e.g. missing the cffi backend), in which
+    case its module import raises a non-Exception subclass like
+    pyo3_runtime.PanicException. Falling through to the HMAC-XOR
+    fallback is better than crashing module-import time."""
     try:
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-    except ImportError:
+    except BaseException as e:  # noqa: BLE001
+        logger.debug("cryptography unavailable: %s", e)
+        return None
+    # Smoke-test the binding once. If decrypting fails here we know the
+    # Rust binding is alive; better to find out at import than mid-call.
+    try:
+        AESGCM(secrets.token_bytes(32)).encrypt(secrets.token_bytes(12), b"x", None)
+    except BaseException as e:  # noqa: BLE001
+        logger.debug("cryptography binding broken: %s", e)
         return None
 
     def _encrypt(plaintext: bytes, key_b64: str) -> str:

@@ -7,6 +7,7 @@ import asyncio
 import json
 
 from fastapi import (
+    BackgroundTasks,
     Depends,
     FastAPI,
     Header,
@@ -256,14 +257,21 @@ async def _voice_stream_loop(ws: WebSocket) -> None:
             yield item
 
     async def pump_in() -> None:
+        # Keep reading WS frames until the socket closes. Mic-end ("end")
+        # closes the audio iterator (via None on mic_queue) but pump_in
+        # itself MUST stay alive so barge_in messages during TTS playback
+        # still reach session.barge_in().
+        mic_done = False
         try:
             while True:
                 msg = await ws.receive()
                 if msg["type"] == "websocket.disconnect":
-                    await mic_queue.put(None)
+                    if not mic_done:
+                        await mic_queue.put(None)
                     return
                 if "bytes" in msg and msg["bytes"] is not None:
-                    await mic_queue.put(msg["bytes"])
+                    if not mic_done:
+                        await mic_queue.put(msg["bytes"])
                     continue
                 text = msg.get("text")
                 if not text:
@@ -274,12 +282,15 @@ async def _voice_stream_loop(ws: WebSocket) -> None:
                     continue
                 kind = data.get("type")
                 if kind == "end":
-                    await mic_queue.put(None)
-                    return
+                    if not mic_done:
+                        await mic_queue.put(None)
+                        mic_done = True
+                    continue
                 if kind == "barge_in":
                     session.barge_in()
         except WebSocketDisconnect:
-            await mic_queue.put(None)
+            if not mic_done:
+                await mic_queue.put(None)
 
     pump_task = asyncio.create_task(pump_in())
     try:
@@ -1184,15 +1195,22 @@ from .plans.types import PlanValidationError  # noqa: E402
 
 
 @app.post("/plans", dependencies=[Depends(require_bearer)])
-async def submit_plan(body: PlanIn) -> dict:
+async def submit_plan(body: PlanIn, background: BackgroundTasks) -> dict:
     try:
         plan = build_plan(body)
     except PlanValidationError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
     runner = get_plans()
-    # submit() registers the run synchronously and schedules execution
-    # as a background task, so the snapshot is queryable immediately.
-    plan_run = runner.submit(plan)
+    # submit() registers the run synchronously and returns its coroutine.
+    # We schedule the coroutine on FastAPI's BackgroundTasks so it lives
+    # OUTSIDE the request's anyio task group — a raw asyncio.create_task
+    # here would be cancelled the moment this handler returns.
+    plan_run, coro = runner.submit(plan)
+
+    async def _run_in_background() -> None:
+        await coro
+
+    background.add_task(_run_in_background)
     audit.record(
         "plans.submit",
         "user",

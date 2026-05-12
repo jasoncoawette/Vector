@@ -97,7 +97,8 @@ def test_v2_migration_idempotent(tmp_path: Path):
     c1.close()
     c2 = connect(p)
     ver = c2.execute("SELECT version FROM schema_meta").fetchone()["version"]
-    assert ver == 2
+    from vector.store.db import SCHEMA_VERSION
+    assert ver == SCHEMA_VERSION
     audit_cols = {r[1] for r in c2.execute("PRAGMA table_info(audit_log)")}
     assert "trace_id" in audit_cols
     c2.close()
@@ -152,5 +153,6 @@ def test_v1_database_upgrades(tmp_path: Path):
     }
     assert "events" in tables
     ver = c.execute("SELECT version FROM schema_meta").fetchone()["version"]
-    assert ver == 2
+    from vector.store.db import SCHEMA_VERSION
+    assert ver == SCHEMA_VERSION
     c.close()

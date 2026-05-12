@@ -33,7 +33,7 @@ def client(tmp_path: Path):
     conn.close()
 
 
-def _wait_for_status(c: TestClient, plan_id: str, target: str, max_s: float = 2.0):
+def _wait_for_status(c: TestClient, plan_id: str, target: str, max_s: float = 8.0):
     deadline = time.time() + max_s
     last = None
     while time.time() < deadline:

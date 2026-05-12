@@ -89,12 +89,17 @@ class AgentManager:
 
     async def kill(self, run_id: str, *, reason: str = "killed by user") -> bool:
         run = self._runs.get(run_id)
-        if run is None or run.status in (
-            RunStatus.DONE,
-            RunStatus.FAILED,
-            RunStatus.KILLED,
-        ):
+        if run is None:
             return False
+        # Done / failed runs already terminated by themselves — we
+        # didn't intervene, so report False.
+        if run.status in (RunStatus.DONE, RunStatus.FAILED):
+            return False
+        # Idempotent: a run that's already KILLED reports True.
+        # Useful when a cancelled background task hit the kill state
+        # before the caller's explicit kill request arrived.
+        if run.status == RunStatus.KILLED:
+            return True
         if run._task is not None:
             run._task.cancel()
         run.status = RunStatus.KILLED
