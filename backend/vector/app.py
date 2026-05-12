@@ -286,9 +286,9 @@ class ToolCallBody(BaseModel):
 
 
 @app.post("/tools/call", dependencies=[Depends(require_bearer)])
-def call_tool(body: ToolCallBody, reg: Registry = Depends(get_registry)) -> dict:
+async def call_tool(body: ToolCallBody, reg: Registry = Depends(get_registry)) -> dict:
     try:
-        result = reg.call(body.name, body.args)
+        result = await reg.acall(body.name, body.args)
         audit.record(body.name, body.caller, body.args, result, ok=True)
         return {"ok": True, "result": result}
     except NeedsConfirm as e:

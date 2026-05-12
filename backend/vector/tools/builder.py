@@ -2,12 +2,16 @@ from __future__ import annotations
 
 from ..memory import MemoryStore
 from .files import FileGuard
+from .maps import MapsClient
 from .obsidian import ObsidianVault
 from .registry import Registry, Tool
 from .schemas import (
     FileDeleteArgs,
     FileReadArgs,
     FileWriteArgs,
+    MapsDirectionsArgs,
+    MapsGeocodeArgs,
+    MapsPlacesArgs,
     MemoryAddArgs,
     MemorySearchArgs,
     ObsidianAppendArgs,
@@ -28,6 +32,11 @@ MEMORY_WRITE_TYPES = frozenset({"research", "writer", "security"})
 # so code / tester / security can't accidentally pollute the vault.
 OBSIDIAN_READ_TYPES = frozenset({"code", "tester", "research", "writer", "security"})
 OBSIDIAN_WRITE_TYPES = frozenset({"research", "writer"})
+
+# Google Maps: productivity-shaped. Only research + writer agents
+# really need it (researching a route, drafting "meet me at" text).
+# Code / tester / security have no business hitting the maps API.
+MAPS_TYPES = frozenset({"research", "writer"})
 
 
 def _add_file_tools(reg: Registry, guard: FileGuard) -> None:
@@ -155,6 +164,33 @@ def _add_obsidian_write(reg: Registry, vault: ObsidianVault) -> None:
     )
 
 
+def _add_maps_tools(reg: Registry, maps: MapsClient) -> None:
+    reg.register(
+        Tool(
+            name="maps.geocode",
+            schema=MapsGeocodeArgs,
+            handler=lambda a: maps.geocode(a.address),  # returns Awaitable
+            description="Resolve an address to lat/lng + canonical components.",
+        )
+    )
+    reg.register(
+        Tool(
+            name="maps.directions",
+            schema=MapsDirectionsArgs,
+            handler=lambda a: maps.directions(a.origin, a.destination, mode=a.mode),
+            description="Routing between two addresses with distance + ETA.",
+        )
+    )
+    reg.register(
+        Tool(
+            name="maps.places",
+            schema=MapsPlacesArgs,
+            handler=lambda a: maps.places(a.query, near=a.near, k=a.k),
+            description="Places text search; optional locationBias via near='lat,lng'.",
+        )
+    )
+
+
 def build_default_registry(guard: FileGuard) -> Registry:
     reg = Registry()
     _add_file_tools(reg, guard)
@@ -167,6 +203,7 @@ def build_registry_for(
     guard: FileGuard,
     memory: MemoryStore | None = None,
     obsidian: ObsidianVault | None = None,
+    maps: MapsClient | None = None,
 ) -> Registry:
     """Return a registry scoped to one agent type's tool needs.
 
@@ -187,4 +224,6 @@ def build_registry_for(
             _add_obsidian_read(reg, obsidian)
         if agent_type in OBSIDIAN_WRITE_TYPES:
             _add_obsidian_write(reg, obsidian)
+    if maps is not None and (agent_type in MAPS_TYPES or agent_type is None):
+        _add_maps_tools(reg, maps)
     return reg

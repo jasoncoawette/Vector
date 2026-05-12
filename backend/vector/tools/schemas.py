@@ -58,3 +58,22 @@ class ObsidianBacklinksArgs(BaseModel):
 
 class ObsidianListArgs(BaseModel):
     pass
+
+
+# --- Google Maps tool -------------------------------------------------
+
+
+class MapsGeocodeArgs(BaseModel):
+    address: str = Field(min_length=1, max_length=500)
+
+
+class MapsDirectionsArgs(BaseModel):
+    origin: str = Field(min_length=1, max_length=500)
+    destination: str = Field(min_length=1, max_length=500)
+    mode: str = Field(default="driving", max_length=20)
+
+
+class MapsPlacesArgs(BaseModel):
+    query: str = Field(min_length=1, max_length=500)
+    near: str | None = Field(default=None, max_length=80)
+    k: int = Field(default=5, ge=1, le=10)

@@ -60,7 +60,7 @@ class ClaudeAgentExecutor:
                     tool_output = "[no registry]"
                 else:
                     try:
-                        result = active_registry.call(
+                        result = await active_registry.acall(
                             reply.tool_call["name"], reply.tool_call.get("args") or {}
                         )
                         tool_output = str(result)[:4000]

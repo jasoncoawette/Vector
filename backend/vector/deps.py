@@ -23,6 +23,7 @@ _plans: PlanRunner | None = None
 _memory: MemoryStore | None = None
 _file_guard: FileGuard | None = None
 _obsidian = None  # ObsidianVault | None (avoid hard import at module load)
+_maps = None  # MapsClient | None
 _session_factory: "callable[[], VoiceSession] | None" = None
 
 
@@ -87,12 +88,32 @@ def set_obsidian(vault) -> None:
     _obsidian = vault
 
 
+def get_maps():
+    """Lazily build a MapsClient. Returns None when no API key is set
+    so agents fall back to other tools without a hard failure."""
+    global _maps
+    if _maps is None:
+        s = get_settings()
+        if not s.google_maps_api_key:
+            return None
+        from .tools.maps import MapsClient
+
+        _maps = MapsClient(api_key=s.google_maps_api_key)
+    return _maps
+
+
+def set_maps(client) -> None:
+    global _maps
+    _maps = client
+
+
 def _registry_factory(agent_type: str):
     return build_registry_for(
         agent_type,
         guard=get_file_guard(),
         memory=get_memory(),
         obsidian=get_obsidian(),
+        maps=get_maps(),
     )
 
 
