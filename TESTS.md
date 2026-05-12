@@ -49,6 +49,16 @@ Coverage target: 70% lines on backend core, 60% on frontend stores. Voice pipeli
 - a metric write updates the chart within 1s
 - mission metrics flag stale data over 7 days old
 
+### 1.4 Mobile (`/m` route)
+
+- renders single-column under 768px
+- all touch targets at least 44x44px (computed style assert)
+- shows picks, brief, agents tail, top metrics, audit tail
+- PTT button toggles listen state on touchstart/touchend
+- backend unreachable: shows last-cached payload with stale banner
+- stale cache over 24h: action buttons hidden
+- network guard refuses POST when host is public IP (mock)
+
 ---
 
 ## 2. Backend Tests (FastAPI)

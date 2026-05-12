@@ -145,6 +145,21 @@ See section 13.
 - Vector reports results back by voice
 - Cap on parallel agents (default 3)
 
+### 7.9 Mobile Web Companion
+
+A phone-first read-and-act view for testing Vector away from the laptop.
+
+- Same SvelteKit app, served at `/m`
+- Phone-first layout. Breakpoint at 768px. Touch targets ≥ 44px.
+- Read: today's picks, morning brief, agent status, top-line metrics, audit log tail
+- Act: push-to-talk, spawn a sub-agent, mark a pick shipped, log a metric value
+- Push-to-talk only (no wake word on mobile)
+- Connects to the laptop backend over local network (Tailscale or LAN). No public exposure.
+- Same bearer-token gate as `POST /config` for any mutation.
+- Read-only fallback if the backend is unreachable: last cached payloads from localStorage.
+
+Why: lets Jason check Vector during commutes and meetings. Lets the build be tested on a phone without a Tauri shell on iOS.
+
 ---
 
 ## 8. Architecture
@@ -372,6 +387,14 @@ All metrics live in SQLite. Dashboard in SvelteKit at /metrics. Vector reads the
 - Jason awake past 11pm: Vector flags sleep risk.
 - Three days in a row missed block: Vector asks why.
 - Negative self-talk in voice input: Vector reads the 4 principles back.
+
+### 14.12 Mobile
+
+- Backend unreachable: show cached last-good payload with a stale banner.
+- Stale cache over 24h: read-only mode, hide action buttons.
+- PTT release without speech: silent no-op, no turn opened.
+- Phone locks mid-stream: drop the turn; let the next tap start a new one.
+- Mobile on public Wi-Fi: refuse mutation if backend host is not loopback or Tailscale CGNAT range.
 
 ---
 

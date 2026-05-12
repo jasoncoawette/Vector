@@ -62,6 +62,26 @@ _MIGRATIONS: list[str] = [
         note TEXT,
         recorded_at REAL NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS memories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        kind TEXT NOT NULL,
+        text TEXT NOT NULL,
+        embedding BLOB NOT NULL,
+        meta TEXT,
+        recorded_at REAL NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_memories_kind ON memories(kind);
+    CREATE TABLE IF NOT EXISTS audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts REAL NOT NULL,
+        tool TEXT NOT NULL,
+        caller TEXT NOT NULL,
+        args_hash TEXT NOT NULL,
+        result_hash TEXT NOT NULL,
+        ok INTEGER NOT NULL,
+        reason TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts DESC);
     """,
 ]
 

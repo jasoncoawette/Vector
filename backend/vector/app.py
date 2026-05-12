@@ -33,6 +33,11 @@ app.add_middleware(
 )
 
 
+@app.on_event("startup")
+def _on_start() -> None:
+    audit.set_sink(get_db())
+
+
 _registry: Registry | None = None
 
 
@@ -321,3 +326,8 @@ def agent_report(run_id: str) -> dict:
     if run is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown run")
     return {"text": _voice_report(run.summary())}
+
+
+@app.get("/audit")
+def get_audit(limit: int = 100) -> dict:
+    return {"entries": audit.tail(get_db(), limit=limit)}

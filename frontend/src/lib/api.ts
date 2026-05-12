@@ -108,3 +108,61 @@ export async function killAgent(
   if (!r.ok) throw new Error(`kill failed: ${r.status}`);
   return ((await r.json()) as { killed: boolean }).killed;
 }
+
+export interface AuditEntry {
+  ts: number;
+  tool: string;
+  caller: string;
+  args_hash: string;
+  result_hash: string;
+  ok: boolean;
+  reason: string | null;
+}
+
+export async function fetchAudit(
+  limit = 50,
+  fetcher: typeof fetch = fetch
+): Promise<AuditEntry[]> {
+  const r = await fetcher(`${BACKEND}/audit?limit=${limit}`);
+  if (!r.ok) throw new Error(`audit failed: ${r.status}`);
+  const body = (await r.json()) as { entries: AuditEntry[] };
+  return body.entries;
+}
+
+const CACHE_PREFIX = 'vector.cache.';
+const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
+
+export function cacheSave<T>(key: string, value: T): void {
+  if (typeof localStorage === 'undefined') return;
+  localStorage.setItem(
+    CACHE_PREFIX + key,
+    JSON.stringify({ ts: Date.now(), value })
+  );
+}
+
+export function cacheLoad<T>(key: string): { value: T; ageMs: number } | null {
+  if (typeof localStorage === 'undefined') return null;
+  const raw = localStorage.getItem(CACHE_PREFIX + key);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { ts: number; value: T };
+    return { value: parsed.value, ageMs: Date.now() - parsed.ts };
+  } catch {
+    return null;
+  }
+}
+
+export function isCacheStale(ageMs: number): boolean {
+  return ageMs > STALE_AFTER_MS;
+}
+
+export function isLocalBackend(): boolean {
+  try {
+    const u = new URL(BACKEND);
+    if (u.hostname === '127.0.0.1' || u.hostname === 'localhost') return true;
+    if (u.hostname.startsWith('100.')) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}

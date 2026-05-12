@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fetchBrief, fetchGreeting, fetchMetrics } from './api';
 
 describe('fetchGreeting', () => {
@@ -46,6 +46,61 @@ describe('fetchBrief', () => {
     });
     const r = await fetchBrief(fakeFetch as unknown as typeof fetch);
     expect(r.picks).toBe(3);
+  });
+});
+
+describe('cache helpers', () => {
+  beforeEach(() => {
+    if (typeof localStorage !== 'undefined') localStorage.clear();
+  });
+
+  it('saves and loads typed values', async () => {
+    const { cacheSave, cacheLoad } = await import('./api');
+    cacheSave('k', { hello: 'world' });
+    const r = cacheLoad<{ hello: string }>('k');
+    expect(r?.value.hello).toBe('world');
+    expect(r?.ageMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('returns null on missing key', async () => {
+    const { cacheLoad } = await import('./api');
+    expect(cacheLoad('missing')).toBeNull();
+  });
+
+  it('isCacheStale honors 24h horizon', async () => {
+    const { isCacheStale } = await import('./api');
+    expect(isCacheStale(60 * 60 * 1000)).toBe(false);
+    expect(isCacheStale(48 * 60 * 60 * 1000)).toBe(true);
+  });
+
+  it('isLocalBackend accepts loopback', async () => {
+    const { isLocalBackend } = await import('./api');
+    expect(isLocalBackend()).toBe(true);
+  });
+});
+
+describe('audit api', () => {
+  it('fetches and parses entries', async () => {
+    const fakeFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        entries: [
+          {
+            ts: 1,
+            tool: 'file.read',
+            caller: 'u',
+            args_hash: 'a',
+            result_hash: 'b',
+            ok: true,
+            reason: null
+          }
+        ]
+      })
+    });
+    const { fetchAudit } = await import('./api');
+    const r = await fetchAudit(10, fakeFetch as unknown as typeof fetch);
+    expect(r[0].tool).toBe('file.read');
   });
 });
 
