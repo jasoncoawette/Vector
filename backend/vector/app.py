@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 
 from . import audit
 from .agents.types import AgentSpec, AgentType, RunStatus
-from .auth import require_bearer
+from .auth import check_ws_bearer, require_bearer
 from .voice.session import VoiceEvent, VoiceState
 from .config import get_settings
 from .deps import get_agents, get_db, new_voice_session
@@ -116,6 +116,8 @@ def _event_to_json(e: VoiceEvent) -> dict:
 
 @app.websocket("/voice/stream")
 async def voice_stream(ws: WebSocket) -> None:
+    if not await check_ws_bearer(ws):
+        return
     await ws.accept()
     session = new_voice_session()
     mic_queue: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=64)
@@ -186,7 +188,7 @@ class ToolCallBody(BaseModel):
     caller: str = "user"
 
 
-@app.post("/tools/call")
+@app.post("/tools/call", dependencies=[Depends(require_bearer)])
 def call_tool(body: ToolCallBody, reg: Registry = Depends(get_registry)) -> dict:
     try:
         result = reg.call(body.name, body.args)
@@ -256,7 +258,7 @@ class ReviewBody(BaseModel):
     note: str | None = None
 
 
-@app.post("/daily/review")
+@app.post("/daily/review", dependencies=[Depends(require_bearer)])
 def daily_review(body: ReviewBody) -> dict:
     conn = get_db()
     r = review.record_review(
@@ -277,7 +279,7 @@ class MetricBody(BaseModel):
     unit: str | None = None
 
 
-@app.post("/metrics")
+@app.post("/metrics", dependencies=[Depends(require_bearer)])
 def post_metric(body: MetricBody) -> dict:
     conn = get_db()
     try:
@@ -323,7 +325,7 @@ class TaskBody(BaseModel):
     mission: str = "stratus"
 
 
-@app.post("/tasks")
+@app.post("/tasks", dependencies=[Depends(require_bearer)])
 def upsert_task(body: TaskBody) -> dict:
     conn = get_db()
     tid = tasks_repo.upsert(

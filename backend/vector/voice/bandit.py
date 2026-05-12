@@ -82,7 +82,7 @@ def route(
     total_trials = sum(s.trials for s in stats.values())
     if total_trials < WARMUP_TRIALS:
         decision = heuristic_route(prompt, agent_type=agent_type)
-        log_decision(conn, decision, agent_type)
+        decision.log_id = log_decision(conn, decision, agent_type)
         return decision
 
     r = rng or random
@@ -96,7 +96,7 @@ def route(
     decision = RoutingDecision(
         tier=picked, model=TIER_MODELS[picked], score=score, features=feats, source="bandit"
     )
-    log_decision(conn, decision, agent_type)
+    decision.log_id = log_decision(conn, decision, agent_type)
     return decision
 
 
@@ -118,23 +118,19 @@ def record_outcome(
         """,
         (delta_a, delta_b, _now(), decision.tier.value),
     )
-    conn.execute(
-        """
-        UPDATE routing_log SET outcome = ?, cost_usd = ?
-        WHERE id = (SELECT id FROM routing_log
-                    WHERE tier = ? AND outcome IS NULL
-                    ORDER BY ts DESC LIMIT 1)
-        """,
-        (1 if success else 0, cost_usd, decision.tier.value),
-    )
+    if decision.log_id is not None:
+        conn.execute(
+            "UPDATE routing_log SET outcome = ?, cost_usd = ? WHERE id = ?",
+            (1 if success else 0, cost_usd, decision.log_id),
+        )
 
 
 def log_decision(
     conn: sqlite3.Connection,
     decision: RoutingDecision,
     agent_type: str | None,
-) -> None:
-    conn.execute(
+) -> int:
+    cur = conn.execute(
         """
         INSERT INTO routing_log(ts, agent_type, tier, model, score, source)
         VALUES(?, ?, ?, ?, ?, ?)
@@ -148,3 +144,4 @@ def log_decision(
             decision.source,
         ),
     )
+    return int(cur.lastrowid)

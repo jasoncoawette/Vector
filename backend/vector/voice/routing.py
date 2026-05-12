@@ -73,6 +73,7 @@ class RoutingDecision:
     score: float
     features: dict[str, float]
     source: str  # "heuristic" or "bandit" or "override"
+    log_id: int | None = None
 
 
 def complexity_score(prompt: str, *, agent_type: str | None = None) -> tuple[float, dict[str, float]]:

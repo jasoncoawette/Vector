@@ -41,11 +41,20 @@ def client(tmp_path: Path):
         conn.close()
 
 
+def _iso_now() -> str:
+    import time as _t
+    from datetime import datetime, timezone
+
+    return datetime.fromtimestamp(_t.time(), tz=timezone.utc).isoformat().replace(
+        "+00:00", "Z"
+    )
+
+
 def _issue_payload(**overrides) -> dict:
     base = {
         "action": "update",
         "type": "Issue",
-        "createdAt": "2026-05-12T05:00:00.000Z",
+        "createdAt": _iso_now(),
         "data": {
             "id": "lin-issue-1",
             "title": "Ship Stratus CLI",

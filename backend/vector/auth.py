@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hmac
 
-from fastapi import Header, HTTPException, status
+from fastapi import Header, HTTPException, WebSocket, status
 
 from .config import get_settings
 
@@ -22,3 +22,22 @@ def require_bearer(authorization: str | None = Header(default=None)) -> None:
     presented = authorization[len("Bearer ") :].strip()
     if not hmac.compare_digest(presented, expected):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "bad bearer token")
+
+
+async def check_ws_bearer(ws: WebSocket) -> bool:
+    """WebSocket bearer check.
+
+    Browsers can't set the `Authorization` header on a WS handshake, so
+    the token comes via `?token=...` query param. Returns True if the
+    request is authorized (or auth is disabled). On failure, closes the
+    socket with policy-violation (1008) and returns False — the caller
+    must not call `accept()` after a False return.
+    """
+    expected = get_settings().backend_bearer
+    if not expected:
+        return True
+    presented = ws.query_params.get("token", "")
+    if presented and hmac.compare_digest(presented, expected):
+        return True
+    await ws.close(code=1008)
+    return False
