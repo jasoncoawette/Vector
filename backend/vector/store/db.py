@@ -171,8 +171,23 @@ def _add_column_if_missing(
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
 
 
-def connect(path: Path) -> sqlite3.Connection:
+def connect(path: Path, *, check_integrity: bool = True) -> sqlite3.Connection:
+    """Open vector.db with WAL + foreign keys, run migrations, and
+    (optionally) check integrity with auto-restore from snapshot.
+
+    `check_integrity=False` is for tests that want a fresh DB without
+    needing a snapshot directory."""
     path.parent.mkdir(parents=True, exist_ok=True)
+
+    if check_integrity and path.exists():
+        # Heal-or-raise opens the file, runs PRAGMA integrity_check,
+        # and on corruption swaps in the newest snapshot before
+        # returning. If it returns we have a usable file at `path`.
+        from .integrity import heal_or_raise
+
+        tmp = heal_or_raise(path)
+        tmp.close()
+
     conn = sqlite3.connect(str(path), isolation_level=None, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
