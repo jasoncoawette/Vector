@@ -104,6 +104,55 @@ describe('audit api', () => {
   });
 });
 
+describe('routing api', () => {
+  it('fetchRoutingStats returns tiers', async () => {
+    const fakeFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        tiers: [
+          {
+            tier: 'haiku',
+            decisions: 12,
+            successes: 10,
+            failures: 2,
+            pending: 0,
+            mean_cost_usd: 0.0012,
+            success_rate: 0.83,
+            alpha: 11,
+            beta: 3,
+            trials: 12,
+            mean_reward: 0.79
+          }
+        ]
+      })
+    });
+    const { fetchRoutingStats } = await import('./api');
+    const r = await fetchRoutingStats(fakeFetch as unknown as typeof fetch);
+    expect(r.tiers[0].tier).toBe('haiku');
+    expect(r.tiers[0].trials).toBe(12);
+  });
+
+  it('fetchRoutingLog clamps limit in URL', async () => {
+    const fakeFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ entries: [] })
+    });
+    const { fetchRoutingLog } = await import('./api');
+    await fetchRoutingLog(50, fakeFetch as unknown as typeof fetch);
+    expect(fakeFetch).toHaveBeenCalledWith(expect.stringContaining('limit=50'));
+  });
+
+  it('fetchRoutingStats throws on error', async () => {
+    const fakeFetch = vi.fn().mockResolvedValue({ ok: false, status: 500 });
+    const { fetchRoutingStats } = await import('./api');
+    await expect(
+      fetchRoutingStats(fakeFetch as unknown as typeof fetch)
+    ).rejects.toThrow();
+  });
+});
+
 describe('agents api', () => {
   it('listAgents returns runs array', async () => {
     const fakeFetch = vi.fn().mockResolvedValue({

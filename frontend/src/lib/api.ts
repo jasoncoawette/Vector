@@ -191,3 +191,50 @@ export function isLocalBackend(): boolean {
     return false;
   }
 }
+
+export interface RoutingTier {
+  tier: 'haiku' | 'sonnet' | 'opus';
+  decisions: number;
+  successes: number;
+  failures: number;
+  pending: number;
+  mean_cost_usd: number;
+  success_rate: number;
+  alpha: number;
+  beta: number;
+  trials: number;
+  mean_reward: number;
+}
+
+export interface RoutingStats {
+  tiers: RoutingTier[];
+}
+
+export interface RoutingLogEntry {
+  ts: number;
+  agent_type: string | null;
+  tier: 'haiku' | 'sonnet' | 'opus';
+  model: string;
+  score: number;
+  source: 'heuristic' | 'bandit' | 'override';
+  outcome: 0 | 1 | null;
+  cost_usd: number | null;
+}
+
+export async function fetchRoutingStats(
+  fetcher: typeof fetch = fetch
+): Promise<RoutingStats> {
+  const r = await fetcher(`${BACKEND}/routing/stats`);
+  if (!r.ok) throw new Error(`routing stats failed: ${r.status}`);
+  return (await r.json()) as RoutingStats;
+}
+
+export async function fetchRoutingLog(
+  limit = 100,
+  fetcher: typeof fetch = fetch
+): Promise<RoutingLogEntry[]> {
+  const r = await fetcher(`${BACKEND}/routing/log?limit=${limit}`);
+  if (!r.ok) throw new Error(`routing log failed: ${r.status}`);
+  const body = (await r.json()) as { entries: RoutingLogEntry[] };
+  return body.entries;
+}
