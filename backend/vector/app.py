@@ -977,6 +977,176 @@ def oauth_google_revoke(account: str) -> dict:
 
 
 # ---------------------------------------------------------------------
+# Notebooks (Vector's NotebookLM-shape). Corpus -> grounded research
+# answers with inline citations. Bearer-gated for writes; reads open.
+# ---------------------------------------------------------------------
+from .deps import (  # noqa: E402
+    get_memory,
+    get_notebook_brain,
+    get_notebook_store,
+)
+from .notebook import research as notebook_research  # noqa: E402
+
+
+class NotebookCreateBody(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    description: str = Field(default="", max_length=2000)
+
+
+class NotebookSourceBody(BaseModel):
+    handle: str = Field(min_length=1, max_length=500)
+    kind: str = Field(default="text", max_length=20)
+    text: str = Field(min_length=1, max_length=200_000)
+
+
+class NotebookQueryBody(BaseModel):
+    query: str = Field(min_length=1, max_length=1000)
+    top_k: int = Field(default=6, ge=1, le=12)
+
+
+def _serialize_notebook(nb) -> dict:
+    return {
+        "name": nb.name,
+        "description": nb.description,
+        "chunks": nb.chunks,
+        "sources": [
+            {
+                "id": s.id,
+                "handle": s.handle,
+                "kind": s.kind,
+                "chunks": s.chunks,
+                "created_at": s.created_at,
+            }
+            for s in nb.sources
+        ],
+    }
+
+
+@app.get("/notebooks")
+def list_notebooks() -> dict:
+    store = get_notebook_store()
+    if store is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "notebook store unavailable"
+        )
+    return {"notebooks": [_serialize_notebook(nb) for nb in store.list_notebooks()]}
+
+
+@app.post("/notebooks", dependencies=[Depends(require_bearer)])
+def create_notebook(body: NotebookCreateBody) -> dict:
+    store = get_notebook_store()
+    if store is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "notebook store unavailable"
+        )
+    store.create(body.name, body.description)
+    audit.record(
+        "notebook.create", "user", {"name": body.name}, {"ok": True}, ok=True
+    )
+    return {"ok": True, "name": body.name}
+
+
+@app.get("/notebooks/{name}")
+def get_notebook(name: str) -> dict:
+    store = get_notebook_store()
+    if store is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "notebook store unavailable"
+        )
+    nb = store.get(name)
+    if nb is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown notebook")
+    return _serialize_notebook(nb)
+
+
+@app.post("/notebooks/{name}/sources", dependencies=[Depends(require_bearer)])
+def add_notebook_source(name: str, body: NotebookSourceBody) -> dict:
+    store = get_notebook_store()
+    if store is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "notebook store unavailable"
+        )
+    try:
+        src = store.add_source(name, handle=body.handle, kind=body.kind, text=body.text)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+    audit.record(
+        "notebook.add_source",
+        "user",
+        {"notebook": name, "handle": body.handle, "kind": body.kind},
+        {"id": src.id, "chunks": src.chunks},
+        ok=True,
+    )
+    return {
+        "id": src.id,
+        "handle": src.handle,
+        "kind": src.kind,
+        "chunks": src.chunks,
+    }
+
+
+@app.delete("/notebooks/{name}/sources/{source_id}", dependencies=[Depends(require_bearer)])
+def remove_notebook_source(name: str, source_id: int) -> dict:
+    store = get_notebook_store()
+    if store is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "notebook store unavailable"
+        )
+    deleted = store.remove_source(source_id)
+    if not deleted:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown source")
+    audit.record(
+        "notebook.remove_source",
+        "user",
+        {"notebook": name, "source_id": source_id},
+        {"deleted": True},
+        ok=True,
+    )
+    return {"deleted": True}
+
+
+@app.post("/notebooks/{name}/ask", dependencies=[Depends(require_bearer)])
+async def ask_notebook(name: str, body: NotebookQueryBody) -> dict:
+    store = get_notebook_store()
+    if store is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "notebook store unavailable"
+        )
+    brain = get_notebook_brain()
+    if brain is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "notebook brain unavailable (set ANTHROPIC_API_KEY)",
+        )
+    try:
+        result = await notebook_research.answer(
+            body.query,
+            notebook=name,
+            memory=get_memory(),
+            notebook_store=store,
+            brain=brain,
+            top_k=body.top_k,
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+    audit.record(
+        "notebook.ask",
+        "user",
+        {"notebook": name, "query_len": len(body.query)},
+        {"citations": len(result.citations), "cost_usd": result.cost_usd},
+        ok=True,
+    )
+    return {
+        "text": result.text,
+        "citations": [
+            {"source_id": c.source_id, "handle": c.handle, "snippet": c.snippet}
+            for c in result.citations
+        ],
+        "cost_usd": result.cost_usd,
+    }
+
+
+# ---------------------------------------------------------------------
 # Plans (DAG execution). Endpoints land here, before the static mount.
 # ---------------------------------------------------------------------
 from .deps import get_plans  # noqa: E402

@@ -29,6 +29,7 @@ _token_store = None  # TokenStore | None
 _google_api = None  # GoogleApiClient | None (shared by gcal + gmail)
 _gcal = None  # GCalClient | None
 _gmail = None  # GmailApiClient | None
+_notebook_store = None  # NotebookStore | None
 _session_factory: "callable[[], VoiceSession] | None" = None
 
 
@@ -399,3 +400,40 @@ def new_voice_session() -> VoiceSession:
 def set_session_factory(factory: "callable[[], VoiceSession] | None") -> None:
     global _session_factory
     _session_factory = factory
+
+
+def get_notebook_store():
+    """Lazily build the NotebookStore over the shared DB + memory."""
+    global _notebook_store
+    if _notebook_store is None:
+        from .notebook import NotebookStore
+
+        _notebook_store = NotebookStore(get_db(), get_memory())
+    return _notebook_store
+
+
+def set_notebook_store(store) -> None:
+    global _notebook_store
+    _notebook_store = store
+
+
+def get_notebook_brain():
+    """A Haiku-tier brain configured with the research system prompt.
+
+    Returns None when no Anthropic key is set so the /notebooks/{name}/ask
+    endpoint responds 503 rather than hanging or 500-ing."""
+    s = get_settings()
+    if not s.anthropic_api_key:
+        return None
+    client = _build_anthropic_client(s.anthropic_api_key)
+    if client is None:
+        return None
+    from .notebook.research import RESEARCH_SYSTEM
+    from .voice.routing import TIER_MODELS, Tier
+
+    return ClaudeBrain(
+        api_key=s.anthropic_api_key,
+        model=TIER_MODELS[Tier.HAIKU],
+        client=client,
+        system=RESEARCH_SYSTEM,
+    )
