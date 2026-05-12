@@ -55,6 +55,11 @@ app.add_middleware(
 
 @app.on_event("startup")
 def _on_start() -> None:
+    import logging as _logging
+
+    from . import logging_setup
+
+    logging_setup.configure()
     db = get_db()
     audit.set_sink(db)
     # Crash recovery: any runs left in queued/running state belong to a
@@ -63,6 +68,10 @@ def _on_start() -> None:
     from .store import runs as runs_store
 
     interrupted = runs_store.mark_interrupted_on_startup(db)
+    _logging.getLogger("vector.startup").info(
+        "vector started",
+        extra={"interrupted_runs": interrupted},
+    )
     if interrupted:
         from .store import events as events_store
 
