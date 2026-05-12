@@ -1,4 +1,22 @@
-const BACKEND = 'http://127.0.0.1:7777';
+// Backend base URL.
+// - When the frontend is served by the backend (single-process deploy),
+//   the bundle and the API share an origin, so '' (relative URLs) is correct.
+// - When SvelteKit dev server is running on :5173, we hit the backend
+//   at :7777 directly. The Vite env var VITE_BACKEND lets you point at
+//   a different host (e.g. a Mac mini's Tailscale name).
+// - In browser contexts where neither holds, fall back to loopback.
+const BACKEND: string = (() => {
+  const env = (import.meta as any)?.env?.VITE_BACKEND;
+  if (typeof env === 'string' && env) return env;
+  if (typeof window !== 'undefined') {
+    const { protocol, hostname, port } = window.location;
+    // Served by the backend itself: same origin, empty prefix.
+    if (port !== '5173') return '';
+    // SvelteKit dev server: assume the backend is on :7777 of the same host.
+    return `${protocol}//${hostname}:7777`;
+  }
+  return 'http://127.0.0.1:7777';
+})();
 
 export interface Greeting {
   text: string;
@@ -182,10 +200,19 @@ export function isCacheStale(ageMs: number): boolean {
 }
 
 export function isLocalBackend(): boolean {
+  // Same-origin deploy: the API rides on whatever host loaded the bundle.
+  // Trust the page's own hostname.
+  let target: string;
+  if (BACKEND === '') {
+    if (typeof window === 'undefined') return false;
+    target = window.location.origin;
+  } else {
+    target = BACKEND;
+  }
   try {
-    const u = new URL(BACKEND);
+    const u = new URL(target);
     if (u.hostname === '127.0.0.1' || u.hostname === 'localhost') return true;
-    if (u.hostname.startsWith('100.')) return true;
+    if (u.hostname.startsWith('100.')) return true; // Tailscale CGNAT
     return false;
   } catch {
     return false;

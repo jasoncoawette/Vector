@@ -39,6 +39,7 @@ from .tools.files import FileGuard
 from .voice.routing_stats import per_tier_summary, recent_decisions
 from .webhooks import handle_linear_event, verify_linear_signature
 from .tools.registry import Registry
+from pathlib import Path as _Path
 
 GREETING_USER = "Jason"
 
@@ -806,3 +807,31 @@ def get_costs(history_days: int = 14) -> dict:
             for t in summary.by_tier
         ],
     }
+
+
+# ---------------------------------------------------------------------
+# Static frontend bundle. Must be registered LAST so every /<api> route
+# above wins the path match. Looks for frontend/build next to backend/;
+# if it doesn't exist (fresh checkout, frontend not built yet), we skip
+# the mount silently — backend still works for API + WebSocket clients.
+# ---------------------------------------------------------------------
+def _mount_static_frontend() -> None:
+    from fastapi.staticfiles import StaticFiles
+
+    here = _Path(__file__).resolve()
+    # backend/vector/app.py -> backend/.. -> repo root -> frontend/build
+    candidates = [
+        here.parent.parent.parent / "frontend" / "build",
+        here.parent.parent / "frontend" / "build",
+    ]
+    for build_dir in candidates:
+        if build_dir.is_dir() and (build_dir / "index.html").exists():
+            app.mount(
+                "/",
+                StaticFiles(directory=str(build_dir), html=True),
+                name="frontend",
+            )
+            return
+
+
+_mount_static_frontend()
