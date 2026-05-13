@@ -30,10 +30,22 @@ from vector.tools.registry import Registry, Tool
 # ---------------------------------------------------------------------
 
 
-def test_system_prompts_cover_every_agent_type():
-    assert set(SYSTEM_PROMPTS.keys()) == {
+# The "task-doing" employees — these search files / memory / vault and
+# must teach the find-things workflow. Meta-profiles (prompt_engineer,
+# orchestrator) work at a different layer and are exercised separately.
+TASK_DOING_PROFILES = {
+    "code", "research", "writer", "tester", "security",
+    "developer", "researcher", "debugger", "self_healer",
+}
+
+
+def test_system_prompts_cover_all_employees_plus_aliases():
+    expected = {
         "code", "research", "writer", "tester", "security",
+        "developer", "researcher",
+        "debugger", "self_healer", "prompt_engineer", "orchestrator",
     }
+    assert expected.issubset(set(SYSTEM_PROMPTS.keys()))
 
 
 def test_every_agent_prompt_teaches_its_tools_section():
@@ -51,8 +63,12 @@ def test_every_agent_prompt_teaches_workflow_section():
         )
 
 
-def test_every_agent_prompt_teaches_where_to_find_section():
-    for agent_type, prompt in SYSTEM_PROMPTS.items():
+def test_task_doing_prompts_teach_where_to_find_section():
+    """Employees that read sources must teach where to find them. The
+    meta-profiles (prompt_engineer, orchestrator) operate one layer up
+    and don't need this section."""
+    for agent_type in TASK_DOING_PROFILES:
+        prompt = SYSTEM_PROMPTS[agent_type]
         assert "Where to find things:" in prompt, (
             f"{agent_type} prompt is missing 'where to find'"
         )
@@ -67,9 +83,10 @@ def test_every_agent_prompt_has_a_worked_example():
 
 
 def test_every_agent_prompt_teaches_step_budget():
-    """All agents must know their tool-call ceiling."""
+    """All agents must know there IS a tool-call ceiling. The exact
+    number is set by the profile, not the prompt."""
     for agent_type, prompt in SYSTEM_PROMPTS.items():
-        assert "12 tool calls" in prompt, (
+        assert "ceiling on tool calls" in prompt, (
             f"{agent_type} prompt is missing the step-budget rule"
         )
 

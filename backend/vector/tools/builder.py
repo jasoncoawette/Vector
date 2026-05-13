@@ -274,6 +274,50 @@ def build_default_registry(guard: FileGuard) -> Registry:
     return reg
 
 
+def _build_master_registry(
+    *,
+    guard: FileGuard,
+    memory: MemoryStore | None,
+    obsidian: ObsidianVault | None,
+    maps: MapsClient | None,
+    gcal: GCalClient | None,
+    gmail: GmailApiClient | None,
+) -> Registry:
+    """Register every tool the runtime can currently serve.
+
+    Pure side-effect helper: doesn't care about agent gating. The
+    profile-aware filter happens in build_registry_for() below.
+    """
+    reg = Registry()
+    _add_file_tools(reg, guard)
+    if memory is not None:
+        _add_memory_search(reg, memory)
+        _add_memory_add(reg, memory)
+    if obsidian is not None:
+        _add_obsidian_read(reg, obsidian)
+        _add_obsidian_write(reg, obsidian)
+    if maps is not None:
+        _add_maps_tools(reg, maps)
+    if gcal is not None:
+        _add_gcal_tools(reg, gcal)
+    if gmail is not None:
+        _add_gmail_tools(reg, gmail)
+    return reg
+
+
+def _filter_registry(master: Registry, allowlist: frozenset[str]) -> Registry:
+    """Return a new Registry containing only tools whose names appear in
+    `allowlist`. Tools requested by allowlist but not present in master
+    are silently dropped — the audit trail in the caller logs missing
+    tools at startup, not on every dispatch."""
+    out = Registry()
+    for name in allowlist:
+        if name not in master._tools:  # noqa: SLF001 — same package
+            continue
+        out.register(master._tools[name])  # noqa: SLF001
+    return out
+
+
 def build_registry_for(
     agent_type: str | None,
     *,
@@ -284,29 +328,31 @@ def build_registry_for(
     gcal: GCalClient | None = None,
     gmail: GmailApiClient | None = None,
 ) -> Registry:
-    """Return a registry scoped to one agent type's tool needs.
+    """Return a registry scoped to one agent profile's tool allowlist.
 
-    Files are always available. Memory + Obsidian are gated by type:
-      - memory.search / obsidian.* read: every agent
-      - memory.add: research / writer / security
-      - obsidian.write / append: research / writer only
+    The profile registry (vector.agents.profiles) is the source of truth
+    for which tools each agent can call. Legacy callers passing the old
+    enum names ('code', 'research') are routed through the alias map.
+
+    agent_type=None → master registry (every available tool). Used by
+    the voice brain when it isn't acting as a specific employee.
     """
-    reg = Registry()
-    _add_file_tools(reg, guard)
-    if memory is not None:
-        if agent_type in MEMORY_READ_TYPES or agent_type is None:
-            _add_memory_search(reg, memory)
-        if agent_type in MEMORY_WRITE_TYPES:
-            _add_memory_add(reg, memory)
-    if obsidian is not None:
-        if agent_type in OBSIDIAN_READ_TYPES or agent_type is None:
-            _add_obsidian_read(reg, obsidian)
-        if agent_type in OBSIDIAN_WRITE_TYPES:
-            _add_obsidian_write(reg, obsidian)
-    if maps is not None and (agent_type in MAPS_TYPES or agent_type is None):
-        _add_maps_tools(reg, maps)
-    if gcal is not None and (agent_type in GCAL_TYPES or agent_type is None):
-        _add_gcal_tools(reg, gcal)
-    if gmail is not None and (agent_type in GMAIL_TYPES or agent_type is None):
-        _add_gmail_tools(reg, gmail)
-    return reg
+    master = _build_master_registry(
+        guard=guard, memory=memory, obsidian=obsidian,
+        maps=maps, gcal=gcal, gmail=gmail,
+    )
+    if agent_type is None:
+        return master
+
+    # Lazy import: profile registry imports prompts, which is heavy.
+    from ..agents.profiles import default_registry
+
+    try:
+        profile = default_registry().get(agent_type)
+    except KeyError:
+        # Unknown profile — be permissive (return master). Manager-level
+        # validation should have already rejected the spawn; this branch
+        # only fires for test fixtures with synthetic types.
+        return master
+
+    return _filter_registry(master, profile.tools)

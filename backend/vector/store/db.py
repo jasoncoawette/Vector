@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # v1 — initial schema. All CREATE TABLE IF NOT EXISTS so it's safe to
 # replay on every connect (idempotent).
@@ -158,6 +158,27 @@ CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_runs_updated ON runs(updated_at DESC);
 """
 
+# v4 — dynamic agent profiles. Produced by the prompt_engineer agent,
+# audit-gated, then persisted here. The profile registry loads these
+# at startup alongside the hardcoded built-ins. Author/created_by lets
+# us track which run produced each profile for revocation.
+_V4_NEW_TABLES = """
+CREATE TABLE IF NOT EXISTS profiles (
+    name TEXT PRIMARY KEY,
+    system_prompt TEXT NOT NULL,
+    tools_json TEXT NOT NULL,
+    default_tier TEXT NOT NULL,
+    step_budget INTEGER NOT NULL,
+    cost_cap_usd REAL NOT NULL,
+    notes TEXT NOT NULL DEFAULT '',
+    created_by TEXT,
+    created_at REAL NOT NULL,
+    revoked_at REAL
+);
+CREATE INDEX IF NOT EXISTS idx_profiles_active
+    ON profiles(revoked_at, created_at);
+"""
+
 
 def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
     rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
@@ -217,6 +238,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if current < 3:
         conn.executescript(_V3_NEW_TABLES)
         conn.execute("UPDATE schema_meta SET version = ?", (3,))
+
+    if current < 4:
+        conn.executescript(_V4_NEW_TABLES)
+        conn.execute("UPDATE schema_meta SET version = ?", (4,))
 
 
 @contextmanager
