@@ -110,3 +110,35 @@ class GmailSendArgs(BaseModel):
     subject: str = Field(min_length=1, max_length=998)
     body: str = Field(max_length=50_000)
     confirm_token: str | None = None
+
+
+# --- Debug / telemetry tools (read-only, debugger profile) -----------
+
+
+class EventsRecentArgs(BaseModel):
+    limit: int = Field(default=50, ge=1, le=500)
+
+
+class EventsByTraceArgs(BaseModel):
+    trace_id: str = Field(min_length=1, max_length=64)
+
+
+class AuditTailArgs(BaseModel):
+    limit: int = Field(default=50, ge=1, le=500)
+
+
+class AuditByTraceArgs(BaseModel):
+    trace_id: str = Field(min_length=1, max_length=64)
+
+
+class RunsRecentArgs(BaseModel):
+    limit: int = Field(default=20, ge=1, le=200)
+    status: str | None = Field(default=None, max_length=32)
+
+
+class RunsGetArgs(BaseModel):
+    run_id: str = Field(min_length=1, max_length=64)
+
+
+class RoutingStatsArgs(BaseModel):
+    pass  # no args

@@ -803,14 +803,7 @@ def get_trace(trace_id: str) -> dict:
     """Reconstruct a full chain by trace_id: events + audit rows + routing."""
     db = get_db()
     events = events_store.by_trace(db, trace_id)
-    audit_rows = [
-        dict(r)
-        for r in db.execute(
-            "SELECT ts, tool, caller, ok, reason FROM audit_log "
-            "WHERE trace_id = ? ORDER BY ts ASC",
-            (trace_id,),
-        ).fetchall()
-    ]
+    audit_rows = audit.by_trace(db, trace_id)
     routing_rows = [
         dict(r)
         for r in db.execute(

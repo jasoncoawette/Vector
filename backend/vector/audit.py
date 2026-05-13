@@ -96,3 +96,28 @@ def tail(conn: sqlite3.Connection, *, limit: int = 100) -> list[dict]:
         }
         for r in rows
     ]
+
+
+def by_trace(conn: sqlite3.Connection, trace_id: str) -> list[dict]:
+    """All audit_log rows for one trace_id, oldest first.
+
+    Returned shape matches the inline query the /trace/{trace_id}
+    endpoint used to build directly; extracted so the debugger agent
+    can call it as a tool without duplicating SQL. `ok` is preserved
+    as int (0/1) so the JSON response shape is unchanged.
+    """
+    rows = conn.execute(
+        "SELECT ts, tool, caller, ok, reason FROM audit_log "
+        "WHERE trace_id = ? ORDER BY ts ASC",
+        (trace_id,),
+    ).fetchall()
+    return [
+        {
+            "ts": r["ts"],
+            "tool": r["tool"],
+            "caller": r["caller"],
+            "ok": r["ok"],
+            "reason": r["reason"],
+        }
+        for r in rows
+    ]
