@@ -269,6 +269,12 @@ def _registry_factory(agent_type: str):
         shell=get_shell_runner(),
         manager=_agents,
         plans_runner=_plans,
+        # Only the orchestrator gets profiles.audit_and_insert. Belt-and-
+        # suspenders with the profile-level allowlist (which is what
+        # filter_registry uses) — but the master registry shouldn't even
+        # carry the tool for non-orchestrator agents, so a bug in the
+        # allowlist can't accidentally surface it.
+        profile_admin=(agent_type == "orchestrator"),
     )
 
 

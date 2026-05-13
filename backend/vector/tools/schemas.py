@@ -184,3 +184,13 @@ class PlansSubmitToolArgs(BaseModel):
     # handler so this tool stays in lockstep with the /plans HTTP route.
     goal: str = Field(min_length=1, max_length=2000)
     steps: list[dict] = Field(min_length=1, max_length=16)
+
+
+# --- Profile-admin tool (orchestrator only) --------------------------
+# The orchestrator passes the prompt_engineer's raw output as a JSON
+# string. The handler does json.loads itself so a bad-JSON case becomes
+# a structured {ok: false} reply instead of a tool-validation error.
+
+
+class ProfileAuditAndInsertArgs(BaseModel):
+    blob_json: str = Field(min_length=1, max_length=20_000)

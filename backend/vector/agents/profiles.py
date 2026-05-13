@@ -158,6 +158,9 @@ _DEBUG_TOOLS = frozenset({
 })
 _RUN_TESTS = frozenset({"shell.run_tests", "shell.run_lint"})
 _ORCHESTRATION = frozenset({"agents.spawn", "agents.fan_out", "plans.submit"})
+# Profile-admin tool: only the orchestrator can call this. Used after
+# spawning prompt_engineer to persist + register the engineer's reply.
+_PROFILE_ADMIN = frozenset({"profiles.audit_and_insert"})
 
 
 def built_in_profiles() -> list[tuple[AgentProfile, tuple[str, ...]]]:
@@ -283,7 +286,7 @@ def built_in_profiles() -> list[tuple[AgentProfile, tuple[str, ...]]]:
             AgentProfile(
                 name="orchestrator",
                 system_prompt=ORCHESTRATOR_AGENT_SYSTEM,
-                tools=_MEMORY_READ | _OBSIDIAN_READ | _ORCHESTRATION,
+                tools=_MEMORY_READ | _OBSIDIAN_READ | _ORCHESTRATION | _PROFILE_ADMIN,
                 default_tier="opus",
                 step_budget=24,
                 cost_cap_usd=3.0,
