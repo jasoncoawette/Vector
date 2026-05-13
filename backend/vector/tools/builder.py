@@ -38,6 +38,7 @@ from .schemas import (
     ObsidianSearchArgs,
     ObsidianWriteArgs,
     PlansSubmitToolArgs,
+    ProfileAuditAndInsertArgs,
     RoutingStatsArgs,
     RunsGetArgs,
     RunsRecentArgs,
@@ -556,6 +557,50 @@ def _add_orchestration_tools(
     )
 
 
+def _add_profile_admin_tools(reg: Registry, db: sqlite3.Connection) -> None:
+    """Register profiles.audit_and_insert — the orchestrator's bridge from
+    prompt_engineer's JSON output to a persisted + registered AgentProfile.
+
+    The handler is sync. It returns {ok, reason, name} for every outcome
+    (including bad JSON) so the orchestrator can route the reason back
+    to prompt_engineer and ask for a revision instead of stalling on a
+    raised exception.
+
+    Lazy imports keep tools/ free of agent-package + json import overhead
+    on cold paths that don't touch this tool.
+    """
+    def _audit_and_insert(args: ProfileAuditAndInsertArgs) -> dict:
+        import json
+
+        from ..agents.profile_store import audit_and_insert_and_register
+        from ..agents.profiles import default_registry
+
+        try:
+            blob = json.loads(args.blob_json)
+        except json.JSONDecodeError as e:
+            return {"ok": False, "reason": f"invalid JSON: {e}", "name": None}
+        ok, reason, name = audit_and_insert_and_register(
+            blob,
+            conn=db,
+            registry=default_registry(),
+            available_tools=frozenset(reg.names()),
+        )
+        return {"ok": ok, "reason": reason, "name": name}
+
+    reg.register(
+        Tool(
+            name="profiles.audit_and_insert",
+            schema=ProfileAuditAndInsertArgs,
+            handler=_audit_and_insert,
+            description=(
+                "Audit a prompt_engineer-produced AgentProfile JSON blob, "
+                "persist it, and register it. Returns {ok, reason, name}; "
+                "ok=false carries a human-readable reason for the engineer."
+            ),
+        )
+    )
+
+
 def build_default_registry(guard: FileGuard) -> Registry:
     reg = Registry()
     _add_file_tools(reg, guard)
@@ -574,11 +619,18 @@ def _build_master_registry(
     shell: ShellRunner | None = None,
     manager: "AgentManager | None" = None,
     plans_runner: "PlanRunner | None" = None,
+    profile_admin: bool = False,
 ) -> Registry:
     """Register every tool the runtime can currently serve.
 
     Pure side-effect helper: doesn't care about agent gating. The
     profile-aware filter happens in build_registry_for() below.
+
+    `profile_admin=True` AND `db is not None` registers the
+    profiles.audit_and_insert tool. We can't gate on db alone — the
+    debug tools already do that, and we don't want every db caller to
+    receive admin tools. Only the orchestrator's master registry sets
+    the flag (see deps._registry_factory).
     """
     reg = Registry()
     _add_file_tools(reg, guard)
@@ -600,6 +652,8 @@ def _build_master_registry(
         _add_shell_tools(reg, shell)
     if manager is not None and plans_runner is not None:
         _add_orchestration_tools(reg, manager, plans_runner)
+    if profile_admin and db is not None:
+        _add_profile_admin_tools(reg, db)
     return reg
 
 
@@ -629,6 +683,7 @@ def build_registry_for(
     shell: ShellRunner | None = None,
     manager: "AgentManager | None" = None,
     plans_runner: "PlanRunner | None" = None,
+    profile_admin: bool = False,
 ) -> Registry:
     """Return a registry scoped to one agent profile's tool allowlist.
 
@@ -638,11 +693,15 @@ def build_registry_for(
 
     agent_type=None → master registry (every available tool). Used by
     the voice brain when it isn't acting as a specific employee.
+
+    `profile_admin=True` enables registration of the
+    profiles.audit_and_insert tool (orchestrator-only; deps wires it).
     """
     master = _build_master_registry(
         guard=guard, memory=memory, obsidian=obsidian,
         maps=maps, gcal=gcal, gmail=gmail, db=db, shell=shell,
         manager=manager, plans_runner=plans_runner,
+        profile_admin=profile_admin,
     )
     if agent_type is None:
         return master

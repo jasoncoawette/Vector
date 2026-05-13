@@ -20,7 +20,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from .profiles import AgentProfile, VALID_TIERS
+from .profiles import AgentProfile, ProfileRegistry, VALID_TIERS
 
 # Tool names that may NEVER appear in a dynamic profile's allowlist.
 # These are dangerous-by-default (destructive or external-effect) and
@@ -38,6 +38,12 @@ FORBIDDEN_DYNAMIC_TOOLS: frozenset[str] = frozenset({
     # employees (self_healer) may have them in their allowlist.
     "shell.run_tests",
     "shell.run_lint",
+    # Profile-admin tool — only the orchestrator may call this. Letting
+    # a dynamic profile request it would let a freshly-minted agent mint
+    # more profiles, which is a privilege-escalation path. Defense in
+    # depth: even though only the orchestrator's allowlist names it,
+    # forbid it here too.
+    "profiles.audit_and_insert",
 })
 
 MAX_PROMPT_LEN = 4000
@@ -217,6 +223,54 @@ def revoke(conn: sqlite3.Connection, name: str) -> bool:
         (time.time(), name),
     )
     return cur.rowcount > 0
+
+
+def audit_and_insert_and_register(
+    blob: dict[str, Any],
+    *,
+    conn: sqlite3.Connection,
+    registry: ProfileRegistry,
+    available_tools: frozenset[str],
+    created_by: str | None = None,
+) -> tuple[bool, str, str | None]:
+    """Audit a blob, persist it, and register it in one shot.
+
+    Returns (ok, reason, name):
+      ok=True  → persisted + registered; reason='loaded'; name=profile.name
+      ok=False → audit/insert/register failed; reason=human-line; name=None
+
+    Built-in names are pulled from the registry so the audit gate refuses
+    collisions. Insert + register are wrapped in a try block; if either
+    fails after audit passes, the row is left out of the registry and the
+    error is returned (not raised) so the orchestrator can retry with a
+    revised blob from prompt_engineer.
+    """
+    try:
+        profile = audit_blob(
+            blob,
+            built_in_names=frozenset(registry.names()),
+            available_tools=available_tools,
+        )
+    except ProfileAuditError as e:
+        return (False, str(e), None)
+
+    try:
+        insert(conn, profile, created_by=created_by)
+    except sqlite3.IntegrityError:
+        return (False, f"name already in profiles table: {profile.name}", None)
+
+    try:
+        registry.register(profile)
+    except ValueError as e:
+        # In-memory collision (a dynamic of the same name was already
+        # registered, or the name clashes with a built-in we didn't catch
+        # in audit). The row was just inserted but isn't reachable through
+        # the registry — revoke it so the DB stays consistent with the
+        # registry's view of the world.
+        revoke(conn, profile.name)
+        return (False, str(e), None)
+
+    return (True, "loaded", profile.name)
 
 
 def load_active(conn: sqlite3.Connection) -> list[StoredProfile]:
