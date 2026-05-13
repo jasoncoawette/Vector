@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 # v1 — initial schema. All CREATE TABLE IF NOT EXISTS so it's safe to
 # replay on every connect (idempotent).
@@ -179,6 +179,37 @@ CREATE INDEX IF NOT EXISTS idx_profiles_active
     ON profiles(revoked_at, created_at);
 """
 
+# v5 — recurring deliveries. Three tables work together:
+#   preferences: durable "user said do this" state (e.g. daily brief)
+#   voice_inbox: rendered messages queued for delivery to the client
+#   scheduler_log: every scheduler tick gets a row so we can debug
+#                  "why didn't my brief fire?" without speculation.
+_V5_NEW_TABLES = """
+CREATE TABLE IF NOT EXISTS preferences (
+    key TEXT PRIMARY KEY,
+    value_json TEXT NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS voice_inbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    text TEXT NOT NULL,
+    meta_json TEXT NOT NULL DEFAULT '{}',
+    created_at REAL NOT NULL,
+    delivered_at REAL
+);
+CREATE INDEX IF NOT EXISTS idx_voice_inbox_pending
+    ON voice_inbox(delivered_at, created_at);
+CREATE TABLE IF NOT EXISTS scheduler_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,
+    key TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    detail TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_scheduler_log_ts ON scheduler_log(ts DESC);
+"""
+
 
 def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
     rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
@@ -242,6 +273,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if current < 4:
         conn.executescript(_V4_NEW_TABLES)
         conn.execute("UPDATE schema_meta SET version = ?", (4,))
+
+    if current < 5:
+        conn.executescript(_V5_NEW_TABLES)
+        conn.execute("UPDATE schema_meta SET version = ?", (5,))
 
 
 @contextmanager

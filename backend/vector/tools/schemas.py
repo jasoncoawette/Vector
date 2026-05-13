@@ -32,6 +32,22 @@ class MemoryAddArgs(BaseModel):
     meta: dict | None = None
 
 
+# --- Preferences (recurring-delivery state) ---------------------------
+
+
+class PreferenceGetArgs(BaseModel):
+    key: str = Field(min_length=1, max_length=64)
+
+
+class PreferenceSetArgs(BaseModel):
+    key: str = Field(min_length=1, max_length=64)
+    value: dict = Field(default_factory=dict)
+
+
+class PreferenceClearArgs(BaseModel):
+    key: str = Field(min_length=1, max_length=64)
+
+
 # --- Obsidian vault tool ---------------------------------------------
 
 

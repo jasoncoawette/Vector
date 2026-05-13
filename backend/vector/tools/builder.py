@@ -5,6 +5,7 @@ import sqlite3
 from typing import TYPE_CHECKING
 
 from ..memory import MemoryStore
+from ..store import preferences as prefs_store
 from .errors import ToolDenied
 from .files import FileGuard
 from .gcal import GCalClient
@@ -38,6 +39,9 @@ from .schemas import (
     ObsidianSearchArgs,
     ObsidianWriteArgs,
     PlansSubmitToolArgs,
+    PreferenceClearArgs,
+    PreferenceGetArgs,
+    PreferenceSetArgs,
     ProfileAuditAndInsertArgs,
     RoutingStatsArgs,
     RunsGetArgs,
@@ -601,6 +605,73 @@ def _add_profile_admin_tools(reg: Registry, db: sqlite3.Connection) -> None:
     )
 
 
+def _add_preferences_tools(reg: Registry, db: sqlite3.Connection) -> None:
+    """Voice-brain-only tools for managing recurring deliveries.
+
+    The brain calls preferences.set when the user asks for something
+    recurring ("brief me every morning"), preferences.clear when the
+    user says stop, and preferences.get to remind itself what's already
+    on. The scheduler reads the same table on its own tick interval.
+    """
+
+    def _set(args: PreferenceSetArgs) -> dict:
+        p = prefs_store.set_(db, args.key, args.value)
+        return {"ok": True, "key": p.key, "updated_at": p.updated_at}
+
+    def _get(args: PreferenceGetArgs) -> dict:
+        p = prefs_store.get(db, args.key)
+        if p is None:
+            return {"found": False, "key": args.key}
+        return {
+            "found": True,
+            "key": p.key,
+            "value": p.value,
+            "updated_at": p.updated_at,
+        }
+
+    def _clear(args: PreferenceClearArgs) -> dict:
+        return {"deleted": prefs_store.clear(db, args.key)}
+
+    reg.register(
+        Tool(
+            name="preferences.set",
+            schema=PreferenceSetArgs,
+            handler=_set,
+            description=(
+                "Persist a recurring user preference. Use this when the user "
+                "asks for something to happen repeatedly. Known keys: "
+                "'daily_brief' (value: {enabled:bool, time:'HH:MM', "
+                "tz_offset_hours:float, user:str, channel:'voice'}). "
+                "Setting overwrites any existing value."
+            ),
+        )
+    )
+    reg.register(
+        Tool(
+            name="preferences.get",
+            schema=PreferenceGetArgs,
+            handler=_get,
+            description=(
+                "Read the current value of a preference. Use this BEFORE "
+                "preferences.set to avoid clobbering settings the user "
+                "didn't ask about. Returns {found:false} when the key has "
+                "never been set."
+            ),
+        )
+    )
+    reg.register(
+        Tool(
+            name="preferences.clear",
+            schema=PreferenceClearArgs,
+            handler=_clear,
+            description=(
+                "Delete a preference entirely. Use when the user says "
+                "'stop', 'cancel', 'turn off' a recurring thing."
+            ),
+        )
+    )
+
+
 def build_default_registry(guard: FileGuard) -> Registry:
     reg = Registry()
     _add_file_tools(reg, guard)
@@ -648,6 +719,7 @@ def _build_master_registry(
         _add_gmail_tools(reg, gmail)
     if db is not None:
         _add_debug_tools(reg, db)
+        _add_preferences_tools(reg, db)
     if shell is not None:
         _add_shell_tools(reg, shell)
     if manager is not None and plans_runner is not None:

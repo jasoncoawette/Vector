@@ -44,6 +44,12 @@ FORBIDDEN_DYNAMIC_TOOLS: frozenset[str] = frozenset({
     # depth: even though only the orchestrator's allowlist names it,
     # forbid it here too.
     "profiles.audit_and_insert",
+    # Preferences tools — only the voice brain manages recurring user
+    # state. A dynamic profile changing the daily-brief schedule (or
+    # erasing it) would be a surprise; deny by default.
+    "preferences.set",
+    "preferences.get",
+    "preferences.clear",
 })
 
 MAX_PROMPT_LEN = 4000
