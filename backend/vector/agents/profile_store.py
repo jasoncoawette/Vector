@@ -33,6 +33,11 @@ FORBIDDEN_DYNAMIC_TOOLS: frozenset[str] = frozenset({
     "agents.spawn",
     "agents.fan_out",
     "plans.submit",
+    # Shell-exec tools — dangerous-by-default. Forking subprocesses
+    # bypasses the sandbox that gates every other tool, so only built-in
+    # employees (self_healer) may have them in their allowlist.
+    "shell.run_tests",
+    "shell.run_lint",
 })
 
 MAX_PROMPT_LEN = 4000

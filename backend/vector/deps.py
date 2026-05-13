@@ -11,6 +11,7 @@ from .memory import HashEmbedder, MemoryStore, SqliteMemoryStore
 from .store import connect
 from .tools.builder import build_registry_for
 from .tools.files import FileGuard
+from .tools.shell import ShellRunner
 from .plans import PlanRunner
 from .voice.brain import Brain, ClaudeBrain
 from .voice.session import VoiceSession
@@ -30,6 +31,7 @@ _google_api = None  # GoogleApiClient | None (shared by gcal + gmail)
 _gcal = None  # GCalClient | None
 _gmail = None  # GmailApiClient | None
 _notebook_store = None  # NotebookStore | None
+_shell_runner: ShellRunner | None = None
 _session_factory: "callable[[], VoiceSession] | None" = None
 
 
@@ -228,6 +230,26 @@ def set_gmail_client(client) -> None:
     _gmail = client
 
 
+def get_shell_runner() -> ShellRunner:
+    """Lazily build a ShellRunner pinned to the repository root.
+
+    The repo root is computed from this file's location:
+        backend/vector/deps.py → backend/vector → backend → <repo>
+    No setting is read; the runner's scope is intentionally tied to the
+    code tree, not the workspace.
+    """
+    global _shell_runner
+    if _shell_runner is None:
+        repo_root = Path(__file__).resolve().parent.parent.parent.parent
+        _shell_runner = ShellRunner(repo_root=repo_root)
+    return _shell_runner
+
+
+def set_shell_runner(runner: ShellRunner | None) -> None:
+    global _shell_runner
+    _shell_runner = runner
+
+
 def _registry_factory(agent_type: str):
     return build_registry_for(
         agent_type,
@@ -237,6 +259,7 @@ def _registry_factory(agent_type: str):
         maps=get_maps(),
         gcal=get_gcal(),
         gmail=get_gmail_client(),
+        shell=get_shell_runner(),
     )
 
 

@@ -26,7 +26,10 @@ from .schemas import (
     ObsidianReadArgs,
     ObsidianSearchArgs,
     ObsidianWriteArgs,
+    ShellRunLintArgs,
+    ShellRunTestsArgs,
 )
+from .shell import ShellRunner
 
 # Which agent types get memory.search (read) vs memory.add (write).
 # Code and tester get read-only; research / writer / security get both.
@@ -241,6 +244,42 @@ def _add_gmail_tools(reg: Registry, gmail: GmailApiClient) -> None:
     )
 
 
+def _add_shell_tools(reg: Registry, runner: ShellRunner) -> None:
+    """Register the sandboxed test + lint subprocess tools.
+
+    These are the FIRST shell-execution tools in the codebase and are
+    in FORBIDDEN_DYNAMIC_TOOLS — only built-in employees (self_healer)
+    can have them in their allowlist.
+    """
+    reg.register(
+        Tool(
+            name="shell.run_tests",
+            schema=ShellRunTestsArgs,
+            handler=lambda a: runner.run_tests(
+                path=a.path, framework=a.framework
+            ).to_dict(),
+            description=(
+                "Run the project's test suite (pytest or vitest) inside the "
+                "repo with a hard timeout and minimal env. Returns exit_code, "
+                "stdout/stderr tails, and pytest passed/failed counts."
+            ),
+        )
+    )
+    reg.register(
+        Tool(
+            name="shell.run_lint",
+            schema=ShellRunLintArgs,
+            handler=lambda a: runner.run_lint(
+                path=a.path, tool=a.tool
+            ).to_dict(),
+            description=(
+                "Run a linter (ruff or svelte-check) inside the repo with a "
+                "hard timeout and minimal env. Returns exit_code + output."
+            ),
+        )
+    )
+
+
 def _add_maps_tools(reg: Registry, maps: MapsClient) -> None:
     reg.register(
         Tool(
@@ -282,6 +321,7 @@ def _build_master_registry(
     maps: MapsClient | None,
     gcal: GCalClient | None,
     gmail: GmailApiClient | None,
+    shell: ShellRunner | None = None,
 ) -> Registry:
     """Register every tool the runtime can currently serve.
 
@@ -302,6 +342,8 @@ def _build_master_registry(
         _add_gcal_tools(reg, gcal)
     if gmail is not None:
         _add_gmail_tools(reg, gmail)
+    if shell is not None:
+        _add_shell_tools(reg, shell)
     return reg
 
 
@@ -327,6 +369,7 @@ def build_registry_for(
     maps: MapsClient | None = None,
     gcal: GCalClient | None = None,
     gmail: GmailApiClient | None = None,
+    shell: ShellRunner | None = None,
 ) -> Registry:
     """Return a registry scoped to one agent profile's tool allowlist.
 
@@ -339,7 +382,7 @@ def build_registry_for(
     """
     master = _build_master_registry(
         guard=guard, memory=memory, obsidian=obsidian,
-        maps=maps, gcal=gcal, gmail=gmail,
+        maps=maps, gcal=gcal, gmail=gmail, shell=shell,
     )
     if agent_type is None:
         return master

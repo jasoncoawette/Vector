@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -110,3 +112,16 @@ class GmailSendArgs(BaseModel):
     subject: str = Field(min_length=1, max_length=998)
     body: str = Field(max_length=50_000)
     confirm_token: str | None = None
+
+
+# --- Shell tools (self_healer only) ----------------------------------
+
+
+class ShellRunTestsArgs(BaseModel):
+    path: str | None = Field(default=None, max_length=500)
+    framework: Literal["pytest", "vitest"] = "pytest"
+
+
+class ShellRunLintArgs(BaseModel):
+    path: str = Field(min_length=1, max_length=500)
+    tool: Literal["ruff", "svelte-check"] = "ruff"
