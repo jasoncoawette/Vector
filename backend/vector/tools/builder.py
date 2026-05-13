@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sqlite3
+
 from ..memory import MemoryStore
 from .files import FileGuard
 from .gcal import GCalClient
@@ -8,6 +10,10 @@ from .maps import MapsClient
 from .obsidian import ObsidianVault
 from .registry import Registry, Tool
 from .schemas import (
+    AuditByTraceArgs,
+    AuditTailArgs,
+    EventsByTraceArgs,
+    EventsRecentArgs,
     FileDeleteArgs,
     FileReadArgs,
     FileWriteArgs,
@@ -26,6 +32,9 @@ from .schemas import (
     ObsidianReadArgs,
     ObsidianSearchArgs,
     ObsidianWriteArgs,
+    RoutingStatsArgs,
+    RunsGetArgs,
+    RunsRecentArgs,
 )
 
 # Which agent types get memory.search (read) vs memory.add (write).
@@ -268,6 +277,148 @@ def _add_maps_tools(reg: Registry, maps: MapsClient) -> None:
     )
 
 
+def _serialize_event_obj(e) -> dict:
+    """Mirror of app._serialize_event for the debug tools. Kept local
+    so the tools/ package doesn't pull in vector.app."""
+    return {
+        "id": e.id,
+        "ts": e.ts,
+        "trace_id": e.trace_id,
+        "run_id": e.run_id,
+        "kind": e.kind,
+        "cost_delta": e.cost_delta,
+        "latency_ms": e.latency_ms,
+        "meta": e.meta,
+    }
+
+
+def _serialize_stored_run_obj(r) -> dict:
+    """Mirror of app._serialize_stored_run. Output is truncated so the
+    tool reply stays small enough for an LLM context window."""
+    return {
+        "id": r.id,
+        "trace_id": r.trace_id,
+        "type": r.type,
+        "prompt": r.prompt[:200],
+        "files": r.files,
+        "status": r.status,
+        "output": r.output[:4000],
+        "error": r.error,
+        "cost_usd": round(r.cost_usd, 4),
+        "fallback_used": r.fallback_used,
+        "attempts_used": r.attempts_used,
+        "max_attempts": r.max_attempts,
+        "last_verifier_reason": r.last_verifier_reason,
+        "queued_at": r.queued_at,
+        "started_at": r.started_at,
+        "ended_at": r.ended_at,
+        "updated_at": r.updated_at,
+    }
+
+
+def _serialize_tier_summary(s) -> dict:
+    """TierSummary dataclass → JSON-safe dict."""
+    return {
+        "tier": s.tier,
+        "decisions": s.decisions,
+        "successes": s.successes,
+        "failures": s.failures,
+        "pending": s.pending,
+        "mean_cost_usd": s.mean_cost_usd,
+        "success_rate": s.success_rate,
+        "alpha": s.alpha,
+        "beta": s.beta,
+        "trials": s.trials,
+        "mean_reward": s.mean_reward,
+    }
+
+
+def _add_debug_tools(reg: Registry, db: sqlite3.Connection) -> None:
+    """Read-only telemetry tools for the debugger profile.
+
+    All seven tools wrap existing store-level functions and return
+    JSON-serializable dicts/lists. None of them mutate, so they're
+    safe to expose under SQLite WAL with concurrent readers.
+    """
+    from .. import audit
+    from ..store import events as events_store
+    from ..store import runs as runs_store
+    from ..voice.routing_stats import per_tier_summary
+
+    reg.register(
+        Tool(
+            name="events.recent",
+            schema=EventsRecentArgs,
+            handler=lambda a: [
+                _serialize_event_obj(e)
+                for e in events_store.recent(db, limit=a.limit)
+            ],
+            description="Most recent events across all traces, newest first.",
+        )
+    )
+    reg.register(
+        Tool(
+            name="events.by_trace",
+            schema=EventsByTraceArgs,
+            handler=lambda a: [
+                _serialize_event_obj(e)
+                for e in events_store.by_trace(db, a.trace_id)
+            ],
+            description="All events for one trace_id, oldest first.",
+        )
+    )
+    reg.register(
+        Tool(
+            name="audit.tail",
+            schema=AuditTailArgs,
+            handler=lambda a: audit.tail(db, limit=a.limit),
+            description="Most recent audit_log rows, newest first.",
+        )
+    )
+    reg.register(
+        Tool(
+            name="audit.by_trace",
+            schema=AuditByTraceArgs,
+            handler=lambda a: audit.by_trace(db, a.trace_id),
+            description="All audit_log rows for one trace_id, oldest first.",
+        )
+    )
+    reg.register(
+        Tool(
+            name="runs.recent",
+            schema=RunsRecentArgs,
+            handler=lambda a: [
+                _serialize_stored_run_obj(r)
+                for r in runs_store.recent(db, limit=a.limit, status=a.status)
+            ],
+            description="Persisted run history; optional status filter.",
+        )
+    )
+
+    def _runs_get(a: RunsGetArgs):
+        r = runs_store.get(db, a.run_id)
+        return _serialize_stored_run_obj(r) if r is not None else {}
+
+    reg.register(
+        Tool(
+            name="runs.get",
+            schema=RunsGetArgs,
+            handler=_runs_get,
+            description="Fetch one run by id, or {} if not found.",
+        )
+    )
+    reg.register(
+        Tool(
+            name="routing.stats",
+            schema=RoutingStatsArgs,
+            handler=lambda _a: {
+                "tiers": [_serialize_tier_summary(s) for s in per_tier_summary(db)]
+            },
+            description="Per-tier routing bandit + outcome summary.",
+        )
+    )
+
+
 def build_default_registry(guard: FileGuard) -> Registry:
     reg = Registry()
     _add_file_tools(reg, guard)
@@ -282,6 +433,7 @@ def _build_master_registry(
     maps: MapsClient | None,
     gcal: GCalClient | None,
     gmail: GmailApiClient | None,
+    db: sqlite3.Connection | None = None,
 ) -> Registry:
     """Register every tool the runtime can currently serve.
 
@@ -302,6 +454,8 @@ def _build_master_registry(
         _add_gcal_tools(reg, gcal)
     if gmail is not None:
         _add_gmail_tools(reg, gmail)
+    if db is not None:
+        _add_debug_tools(reg, db)
     return reg
 
 
@@ -327,6 +481,7 @@ def build_registry_for(
     maps: MapsClient | None = None,
     gcal: GCalClient | None = None,
     gmail: GmailApiClient | None = None,
+    db: sqlite3.Connection | None = None,
 ) -> Registry:
     """Return a registry scoped to one agent profile's tool allowlist.
 
@@ -339,7 +494,7 @@ def build_registry_for(
     """
     master = _build_master_registry(
         guard=guard, memory=memory, obsidian=obsidian,
-        maps=maps, gcal=gcal, gmail=gmail,
+        maps=maps, gcal=gcal, gmail=gmail, db=db,
     )
     if agent_type is None:
         return master

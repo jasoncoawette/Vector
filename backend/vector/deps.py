@@ -237,6 +237,7 @@ def _registry_factory(agent_type: str):
         maps=get_maps(),
         gcal=get_gcal(),
         gmail=get_gmail_client(),
+        db=get_db(),
     )
 
 
