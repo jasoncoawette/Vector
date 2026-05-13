@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+from typing import TYPE_CHECKING
+
 from ..memory import MemoryStore
+from .errors import ToolDenied
 from .files import FileGuard
 from .gcal import GCalClient
 from .ggmail import GmailClient as GmailApiClient
@@ -8,6 +12,8 @@ from .maps import MapsClient
 from .obsidian import ObsidianVault
 from .registry import Registry, Tool
 from .schemas import (
+    AgentFanOutToolArgs,
+    AgentSpawnToolArgs,
     FileDeleteArgs,
     FileReadArgs,
     FileWriteArgs,
@@ -26,7 +32,12 @@ from .schemas import (
     ObsidianReadArgs,
     ObsidianSearchArgs,
     ObsidianWriteArgs,
+    PlansSubmitToolArgs,
 )
+
+if TYPE_CHECKING:
+    from ..agents.manager import AgentManager
+    from ..plans.executor import PlanRunner
 
 # Which agent types get memory.search (read) vs memory.add (write).
 # Code and tester get read-only; research / writer / security get both.
@@ -268,6 +279,93 @@ def _add_maps_tools(reg: Registry, maps: MapsClient) -> None:
     )
 
 
+def _add_orchestration_tools(
+    reg: Registry,
+    manager: "AgentManager",
+    plans_runner: "PlanRunner",
+) -> None:
+    """Register the agents.spawn / agents.fan_out / plans.submit tools.
+
+    Profile names are resolved through the profile registry so aliases
+    like 'code' still work. Plan submission schedules the runner's
+    coroutine as a background task — keeping the tool call fast while
+    the plan executes off the request path.
+    """
+    from ..agents.profiles import default_registry
+    from ..agents.types import AgentSpec
+    from ..plans.schema import PlanIn, build_plan
+
+    def _spec_from(args: AgentSpawnToolArgs) -> AgentSpec:
+        try:
+            resolved = default_registry().resolve(args.name)
+        except KeyError as e:
+            raise ToolDenied(f"unknown agent profile: {args.name}") from e
+        return AgentSpec(
+            type=resolved,
+            prompt=args.prompt,
+            files=frozenset(args.files),
+            cost_cap_usd=args.cost_cap_usd,
+            timeout_s=args.timeout_s,
+            success_criteria=args.success_criteria,
+            max_attempts=args.max_attempts,
+        )
+
+    async def _spawn(args: AgentSpawnToolArgs) -> dict:
+        spec = _spec_from(args)
+        run = await manager.spawn(spec)
+        return {"id": run.id, "name": spec.type, "status": run.status.value}
+
+    async def _fan_out(args: AgentFanOutToolArgs) -> dict:
+        specs = [_spec_from(s) for s in args.specs]
+        runs = await manager.fan_out(specs)
+        return {
+            "runs": [
+                {"id": r.id, "name": r.spec.type, "status": r.status.value}
+                for r in runs
+            ]
+        }
+
+    async def _submit_plan(args: PlansSubmitToolArgs) -> dict:
+        plan = build_plan(PlanIn(**args.model_dump()))
+        plan_run, coro = plans_runner.submit(plan)
+        asyncio.create_task(coro)
+        return {"plan_id": plan.id, "status": plan_run.status.value}
+
+    reg.register(
+        Tool(
+            name="agents.spawn",
+            schema=AgentSpawnToolArgs,
+            handler=_spawn,
+            description=(
+                "Spawn one sub-agent by profile name (alias OK). "
+                "Returns the new run id + status."
+            ),
+        )
+    )
+    reg.register(
+        Tool(
+            name="agents.fan_out",
+            schema=AgentFanOutToolArgs,
+            handler=_fan_out,
+            description=(
+                "Spawn multiple sub-agents in one call. Manager's parallel "
+                "cap and file-conflict guard still apply."
+            ),
+        )
+    )
+    reg.register(
+        Tool(
+            name="plans.submit",
+            schema=PlansSubmitToolArgs,
+            handler=_submit_plan,
+            description=(
+                "Submit a multi-step Plan (DAG of agent steps). Runs in "
+                "the background; returns the plan id immediately."
+            ),
+        )
+    )
+
+
 def build_default_registry(guard: FileGuard) -> Registry:
     reg = Registry()
     _add_file_tools(reg, guard)
@@ -282,6 +380,8 @@ def _build_master_registry(
     maps: MapsClient | None,
     gcal: GCalClient | None,
     gmail: GmailApiClient | None,
+    manager: "AgentManager | None" = None,
+    plans_runner: "PlanRunner | None" = None,
 ) -> Registry:
     """Register every tool the runtime can currently serve.
 
@@ -302,6 +402,8 @@ def _build_master_registry(
         _add_gcal_tools(reg, gcal)
     if gmail is not None:
         _add_gmail_tools(reg, gmail)
+    if manager is not None and plans_runner is not None:
+        _add_orchestration_tools(reg, manager, plans_runner)
     return reg
 
 
@@ -327,6 +429,8 @@ def build_registry_for(
     maps: MapsClient | None = None,
     gcal: GCalClient | None = None,
     gmail: GmailApiClient | None = None,
+    manager: "AgentManager | None" = None,
+    plans_runner: "PlanRunner | None" = None,
 ) -> Registry:
     """Return a registry scoped to one agent profile's tool allowlist.
 
@@ -340,6 +444,7 @@ def build_registry_for(
     master = _build_master_registry(
         guard=guard, memory=memory, obsidian=obsidian,
         maps=maps, gcal=gcal, gmail=gmail,
+        manager=manager, plans_runner=plans_runner,
     )
     if agent_type is None:
         return master
