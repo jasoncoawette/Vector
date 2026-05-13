@@ -24,6 +24,8 @@ The build_registry_for helper takes care of that intersection.
 """
 from __future__ import annotations
 
+import logging
+import sqlite3
 from dataclasses import dataclass, field
 
 
@@ -319,3 +321,83 @@ def reset_default_registry() -> None:
     """For tests: drop the singleton so the next call rebuilds it."""
     global _default_registry
     _default_registry = None
+
+
+# ---------------------------------------------------------------------
+# Persisted dynamic profiles — merge audit-passed rows from the
+# `profiles` table into the in-memory registry at startup.
+# ---------------------------------------------------------------------
+
+
+def register_persisted(
+    registry: ProfileRegistry,
+    db: sqlite3.Connection,
+) -> dict[str, str]:
+    """Merge audit-passed dynamic profiles from the profiles table into
+    the in-memory registry. Returns a dict of {name: outcome} where
+    outcome is "loaded" or "skipped:<reason>". Logs each decision.
+
+    Built-ins always win on a name collision — the stored row is
+    skipped, the built-in is preserved, and a warning is logged.
+    Revoked rows are filtered out at the SQL level by
+    `profile_store.load_active`.
+
+    A corrupt row (raises while hydrating into an AgentProfile) is
+    logged + skipped rather than crashing the caller. Startup should
+    not die because one stored profile got into a bad shape.
+    """
+    log = logging.getLogger("vector.profiles")
+    outcomes: dict[str, str] = {}
+
+    # Import here to avoid a circular module load: profile_store imports
+    # from this module for AgentProfile / VALID_TIERS.
+    from . import profile_store
+
+    try:
+        stored_rows = profile_store.load_active(db)
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "failed to load persisted profiles; continuing with built-ins only",
+            extra={"error": f"{type(exc).__name__}: {exc}"},
+        )
+        return outcomes
+
+    for stored in stored_rows:
+        name = getattr(stored, "name", "<unknown>")
+        try:
+            profile = stored.to_profile()
+        except Exception as exc:  # noqa: BLE001
+            reason = f"corrupt:{type(exc).__name__}"
+            outcomes[name] = f"skipped:{reason}"
+            log.warning(
+                "skipping corrupt persisted profile",
+                extra={"profile": name, "reason": reason, "error": str(exc)},
+            )
+            continue
+
+        try:
+            registry.register(profile)
+        except ValueError as exc:
+            # Name collision with a built-in (or another already-loaded
+            # dynamic). Built-ins always win — never overwrite.
+            reason = str(exc)
+            outcomes[profile.name] = f"skipped:{reason}"
+            log.warning(
+                "skipping persisted profile due to name collision",
+                extra={"profile": profile.name, "reason": reason},
+            )
+            continue
+
+        outcomes[profile.name] = "loaded"
+        log.info(
+            "loaded persisted profile",
+            extra={"profile": profile.name},
+        )
+
+    return outcomes
+
+
+def reload_persisted(db: sqlite3.Connection) -> None:
+    """Reset the cached registry and re-merge persisted profiles. Test-only."""
+    reset_default_registry()
+    register_persisted(default_registry(), db)

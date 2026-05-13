@@ -85,6 +85,25 @@ def _on_start() -> None:
     db = get_db()
     audit.set_sink(db)
 
+    # Merge audit-passed dynamic profiles from the profiles table into
+    # the in-memory registry. Without this, profiles inserted in one run
+    # die on restart — built-ins still work, but the prompt_engineer's
+    # output is lost. register_persisted is resilient: a corrupt row
+    # logs + skips rather than crashing the process.
+    from .agents.profiles import default_registry, register_persisted
+
+    try:
+        outcomes = register_persisted(default_registry(), db)
+        _logging.getLogger("vector.startup").info(
+            "vector profiles loaded",
+            extra={"outcomes": outcomes},
+        )
+    except Exception as exc:  # noqa: BLE001
+        _logging.getLogger("vector.startup").exception(
+            "vector profiles load failed; continuing with built-ins only",
+            extra={"error": f"{type(exc).__name__}: {exc}"},
+        )
+
     # Tailscale / LAN deploy guard: if the backend isn't on loopback we
     # need bearer auth, otherwise any host on the network can spawn agents
     # or write tools. Loud warning at startup, not a hard refusal — local
