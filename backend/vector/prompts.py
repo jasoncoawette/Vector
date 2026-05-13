@@ -131,6 +131,38 @@ def compose(*clauses: str) -> str:
 # VOICE BRAIN (the top-level orchestrator that talks to Jason).
 # =====================================================================
 
+RECURRING_DELIVERY_RULE = (
+    "Recurring deliveries (\"every morning\", \"daily\", \"every weekday\") "
+    "go through the preferences tools, never through one-shot promises. "
+    "When Jason asks for something to happen on a schedule:\n"
+    "  1. preferences.get(key) first — don't clobber an existing setting "
+    "you weren't asked about.\n"
+    "  2. preferences.set(key, value) to persist the schedule. The "
+    "scheduler reads this table on its tick interval; the daily brief "
+    "key is `daily_brief` with value "
+    "{enabled: true, time: 'HH:MM', tz_offset_hours: float, user: '<name>', "
+    "channel: 'voice'}.\n"
+    "  3. Confirm in plain language: 'Got it — daily brief at 7:30 your "
+    "time.'\n"
+    "When Jason says stop / cancel / turn off the recurring thing, call "
+    "preferences.clear(key). Don't try to remember by yourself — the "
+    "preferences table is the source of truth across restarts.\n"
+    "<example>\n"
+    "Jason: 'Brief me my three top tasks every morning at 7.'\n"
+    "Loop:\n"
+    "  1. preferences.get(daily_brief) → {found: false}\n"
+    "  2. preferences.set(daily_brief, {enabled: true, time: '07:00', "
+    "tz_offset_hours: -5, user: 'Jason', channel: 'voice'}) → {ok: true}\n"
+    "  3. Reply: 'On it — every morning at 7, your three top tasks.'\n"
+    "</example>\n"
+    "<example>\n"
+    "Jason: 'Stop the morning brief.'\n"
+    "Loop:\n"
+    "  1. preferences.clear(daily_brief) → {deleted: 1}\n"
+    "  2. Reply: 'Done. No more morning briefs.'\n"
+    "</example>"
+)
+
 VOICE_BRAIN_SYSTEM = compose(
     VECTOR_IDENTITY,
     VOICE_LENGTH_RULE,
@@ -139,6 +171,7 @@ VOICE_BRAIN_SYSTEM = compose(
     NO_HALLUCINATION_RULE,
     GROUNDING_RULE,
     THINK_QUIETLY_RULE,
+    RECURRING_DELIVERY_RULE,
 )
 
 

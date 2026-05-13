@@ -38,6 +38,12 @@ FORBIDDEN_DYNAMIC_TOOLS: frozenset[str] = frozenset({
     # employees (self_healer) may have them in their allowlist.
     "shell.run_tests",
     "shell.run_lint",
+    # Preferences tools — only the voice brain manages recurring user
+    # state. A dynamic profile changing the daily-brief schedule (or
+    # erasing it) would be a surprise; deny by default.
+    "preferences.set",
+    "preferences.get",
+    "preferences.clear",
 })
 
 MAX_PROMPT_LEN = 4000

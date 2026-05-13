@@ -23,9 +23,12 @@ from pydantic import BaseModel, Field
 
 from . import audit
 from . import mocks as designkit_mocks
+from . import scheduler as scheduler_mod
 from .agents.types import AgentSpec, AgentType, RunStatus
 from .auth import check_ws_bearer, require_bearer
 from .store import events as events_store
+from .store import inbox as inbox_store
+from .store import preferences as prefs_store
 from .tracing import trace
 from .voice.session import VoiceEvent, VoiceState
 from .config import get_settings
@@ -134,6 +137,45 @@ def _on_start() -> None:
                 db, "startup_recovery", meta={"interrupted_runs": interrupted}
             )
         except Exception:  # noqa: BLE001
+            pass
+
+    # Boot the recurring-delivery scheduler. The loop is cancellable;
+    # _on_stop() below signals it to exit cleanly. Disabled in test
+    # runs (no event loop) — tests call scheduler.tick() directly.
+    _start_scheduler_task()
+
+
+_scheduler_task: "asyncio.Task | None" = None
+_scheduler_stop: "asyncio.Event | None" = None
+
+
+def _start_scheduler_task() -> None:
+    """Spin up the scheduler loop as a background asyncio Task.
+
+    Called from the startup hook. Pulls a fresh DB handle every tick so
+    the loop survives reconnects."""
+    global _scheduler_task, _scheduler_stop
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        # No event loop — happens under TestClient without lifespan.
+        # Tests invoke scheduler.tick(conn) directly.
+        return
+    _scheduler_stop = asyncio.Event()
+    _scheduler_task = loop.create_task(
+        scheduler_mod.run_loop(get_db, stop_event=_scheduler_stop),
+        name="vector-scheduler",
+    )
+
+
+@app.on_event("shutdown")
+async def _on_stop() -> None:
+    if _scheduler_stop is not None:
+        _scheduler_stop.set()
+    if _scheduler_task is not None:
+        try:
+            await asyncio.wait_for(_scheduler_task, timeout=2.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
             pass
 
 
@@ -473,6 +515,104 @@ def get_metrics(section: str | None = None) -> dict:
             }
         )
     return {"sections": sections}
+
+
+# ---------------------------------------------------------------------
+# Preferences + voice inbox + scheduler — the "tell me every day until I
+# say stop" surface. Bearer-gated for writes; reads are open inside
+# loopback. The scheduler runs as a background task started above.
+# ---------------------------------------------------------------------
+
+
+class PreferenceBody(BaseModel):
+    value: dict[str, Any] = Field(default_factory=dict)
+
+
+def _serialize_pref(p) -> dict:
+    return {"key": p.key, "value": p.value, "updated_at": p.updated_at}
+
+
+@app.get("/preferences")
+def list_preferences() -> dict:
+    return {"preferences": [_serialize_pref(p) for p in prefs_store.list_all(get_db())]}
+
+
+@app.get("/preferences/{key}")
+def get_preference(key: str) -> dict:
+    p = prefs_store.get(get_db(), key)
+    if p is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown preference")
+    return _serialize_pref(p)
+
+
+@app.post("/preferences/{key}", dependencies=[Depends(require_bearer)])
+def set_preference(key: str, body: PreferenceBody) -> dict:
+    p = prefs_store.set_(get_db(), key, body.value)
+    audit.record("preferences.set", "user", {"key": key}, {"ok": True}, ok=True)
+    return _serialize_pref(p)
+
+
+@app.delete("/preferences/{key}", dependencies=[Depends(require_bearer)])
+def clear_preference(key: str) -> dict:
+    deleted = prefs_store.clear(get_db(), key)
+    audit.record(
+        "preferences.clear", "user", {"key": key}, {"deleted": deleted}, ok=deleted
+    )
+    if not deleted:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown preference")
+    return {"deleted": True}
+
+
+def _serialize_inbox(m) -> dict:
+    return {
+        "id": m.id,
+        "kind": m.kind,
+        "text": m.text,
+        "meta": m.meta,
+        "created_at": m.created_at,
+        "delivered_at": m.delivered_at,
+    }
+
+
+@app.get("/voice/inbox")
+def list_inbox(only_pending: bool = True, limit: int = 20) -> dict:
+    """Drain the voice inbox. The desktop client polls this on focus.
+
+    When `only_pending=true` (default) returns undelivered rows; the
+    client should call POST /voice/inbox/{id}/ack after speaking each
+    message so it isn't replayed."""
+    conn = get_db()
+    if only_pending:
+        msgs = inbox_store.pending(conn, limit=limit)
+    else:
+        msgs = inbox_store.history(conn, limit=limit)
+    return {"messages": [_serialize_inbox(m) for m in msgs]}
+
+
+@app.post("/voice/inbox/{message_id}/ack", dependencies=[Depends(require_bearer)])
+def ack_inbox(message_id: int) -> dict:
+    ok = inbox_store.mark_delivered(get_db(), message_id)
+    if not ok:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown or already delivered")
+    return {"delivered": True}
+
+
+@app.post("/scheduler/tick", dependencies=[Depends(require_bearer)])
+def scheduler_tick() -> dict:
+    """Fire one scheduler decision now. Used for testing the daily-brief
+    pipeline end-to-end without waiting for the configured time."""
+    result = scheduler_mod.tick(get_db())
+    return {"key": result.key, "outcome": result.outcome, "detail": result.detail}
+
+
+@app.get("/scheduler/log")
+def scheduler_log(limit: int = 100) -> dict:
+    return {"entries": inbox_store.scheduler_tail(get_db(), limit=limit)}
+
+
+# ---------------------------------------------------------------------
+# Tasks ingestion.
+# ---------------------------------------------------------------------
 
 
 class TaskBody(BaseModel):
