@@ -3,6 +3,9 @@
   import Orb from '$lib/Orb.svelte';
   import { voice } from '$lib/voiceState';
   import { buildVoiceUrl, VoiceClient, type VoiceEvent } from '$lib/voiceClient';
+  import VoiceInboxWatcher from '$lib/components/VoiceInboxWatcher.svelte';
+  import { briefs, appendBrief } from '$lib/stores/inbox';
+  import { streamTts, type InboxMessage } from '$lib/inbox';
 
   // Reuses BACKEND resolution from api.ts.
   const BACKEND: string = (() => {
@@ -123,6 +126,22 @@
     client.endTurn();
   }
 
+  // Inbox briefs: dropped by the scheduler into /voice/inbox. Display the
+  // text immediately, then attempt TTS. If /tts/stream is missing or there
+  // is no audio output, streamTts returns null and the text-only display
+  // we already did is the fallback (per RES-44).
+  async function handleInboxMessage(msg: InboxMessage): Promise<void> {
+    appendBrief(msg);
+    const audio = await streamTts(msg.text);
+    if (audio) {
+      try {
+        await audio.play();
+      } catch {
+        // Autoplay blocked or no audio device — text fallback already shown.
+      }
+    }
+  }
+
   onMount(loadToken);
 
   onDestroy(() => {
@@ -134,10 +153,26 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 </svelte:head>
 
+<VoiceInboxWatcher onmessage={handleInboxMessage} />
+
 <main>
   <header>
     <h1>Vector — voice</h1>
   </header>
+
+  {#if $briefs.length > 0}
+    <section class="briefs" aria-label="Pushed briefs">
+      <h2>Briefs</h2>
+      <ul>
+        {#each $briefs as brief (brief.id)}
+          <li>
+            <span class="kind">{brief.kind}</span>
+            <span class="text">{brief.text}</span>
+          </li>
+        {/each}
+      </ul>
+    </section>
+  {/if}
 
   {#if !connected}
     <section class="connect">
@@ -280,5 +315,37 @@
   .error {
     color: #ef4444;
     margin: 0;
+  }
+  .briefs {
+    background: #eef2ff;
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 0 0 1rem;
+  }
+  .briefs h2 {
+    margin: 0 0 0.5rem;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #4338ca;
+  }
+  .briefs ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .briefs .kind {
+    display: inline-block;
+    margin-right: 0.5rem;
+    font-size: 0.7rem;
+    color: #6366f1;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .briefs .text {
+    color: #111827;
   }
 </style>
