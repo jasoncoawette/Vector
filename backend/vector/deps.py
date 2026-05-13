@@ -275,11 +275,19 @@ def _build_real_executor() -> ClaudeAgentExecutor | None:
             model = decision.model
         else:
             model = TIER_MODELS[Tier.SONNET]
+        # Build the agent's registry up-front so its tool schemas can be
+        # advertised to Claude in the same call. Without this, the brain
+        # never emits tool_use blocks and the executor's tool loop is
+        # dead code. The executor will rebuild a registry of the same
+        # shape on dispatch — both branches use _registry_factory.
+        reg = _registry_factory(agent_type)
+        tool_schemas = reg.to_anthropic_schemas() if reg is not None else None
         return ClaudeBrain(
             api_key=s.anthropic_api_key,
             model=model,
             client=client,
             system=SYSTEM_PROMPTS.get(agent_type, ""),
+            tool_schemas=tool_schemas,
         )
 
     return ClaudeAgentExecutor(

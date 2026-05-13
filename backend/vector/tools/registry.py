@@ -34,6 +34,32 @@ class Registry:
             for t in self._tools.values()
         ]
 
+    def names(self) -> list[str]:
+        return list(self._tools.keys())
+
+    def to_anthropic_schemas(self) -> list[dict]:
+        """Render every registered tool as a Claude tool schema.
+
+        Anthropic's Messages API expects:
+            {"name": str, "description": str, "input_schema": <JSON Schema>}
+
+        We derive `input_schema` from each tool's Pydantic model. Pydantic
+        emits `$defs` for nested types, which Anthropic accepts.
+        """
+        out: list[dict] = []
+        for t in self._tools.values():
+            schema = t.schema.model_json_schema()
+            # Anthropic doesn't accept a top-level `title` field; strip it.
+            schema.pop("title", None)
+            out.append(
+                {
+                    "name": t.name,
+                    "description": t.description,
+                    "input_schema": schema,
+                }
+            )
+        return out
+
     def _dispatch(self, name: str, args: dict[str, Any]) -> Any:
         tool = self._tools.get(name)
         if tool is None:
