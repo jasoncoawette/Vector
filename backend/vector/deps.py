@@ -251,6 +251,12 @@ def set_shell_runner(runner: ShellRunner | None) -> None:
 
 
 def _registry_factory(agent_type: str):
+    # Peek at the already-built singletons rather than re-entering
+    # get_agents()/get_plans() — those build on first call, and this
+    # factory is invoked at spawn time from inside the executor that
+    # get_agents() itself constructs. Once both are non-None the
+    # orchestration tools are registered; before then we fail open and
+    # omit them so the master registry still serves every other tool.
     return build_registry_for(
         agent_type,
         guard=get_file_guard(),
@@ -261,6 +267,8 @@ def _registry_factory(agent_type: str):
         gmail=get_gmail_client(),
         db=get_db(),
         shell=get_shell_runner(),
+        manager=_agents,
+        plans_runner=_plans,
     )
 
 
@@ -346,7 +354,7 @@ def _build_verifier():
 
 
 def get_agents() -> AgentManager:
-    global _agents
+    global _agents, _plans
     if _agents is None:
         s = get_settings()
         executor = _build_real_executor() or _placeholder_executor
@@ -366,6 +374,11 @@ def get_agents() -> AgentManager:
             from .agents.auto_security import register_auto_security
 
             register_auto_security(_agents)
+        # Prime the plan runner so the orchestrator's plans.submit tool
+        # is present in its first spawned registry. PlanRunner is cheap
+        # and depends only on the manager we just built.
+        if _plans is None:
+            _plans = PlanRunner(manager=_agents)
     return _agents
 
 

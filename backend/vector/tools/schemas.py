@@ -157,3 +157,30 @@ class ShellRunTestsArgs(BaseModel):
 class ShellRunLintArgs(BaseModel):
     path: str = Field(min_length=1, max_length=500)
     tool: Literal["ruff", "svelte-check"] = "ruff"
+
+
+# --- Orchestration tools --------------------------------------------
+# Surfaced only to the orchestrator profile. The builder gates registration
+# on the presence of an AgentManager + PlanRunner so the master registry
+# stays well-defined when those clients aren't wired (e.g. early startup).
+
+
+class AgentSpawnToolArgs(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+    prompt: str = Field(min_length=1, max_length=8000)
+    files: list[str] = Field(default_factory=list, max_length=32)
+    cost_cap_usd: float = Field(default=1.0, gt=0, le=10.0)
+    timeout_s: int = Field(default=600, ge=1, le=3600)
+    success_criteria: str | None = Field(default=None, max_length=2000)
+    max_attempts: int = Field(default=3, ge=1, le=5)
+
+
+class AgentFanOutToolArgs(BaseModel):
+    specs: list[AgentSpawnToolArgs] = Field(min_length=1, max_length=8)
+
+
+class PlansSubmitToolArgs(BaseModel):
+    # The dict shape is validated through PlanIn/build_plan inside the
+    # handler so this tool stays in lockstep with the /plans HTTP route.
+    goal: str = Field(min_length=1, max_length=2000)
+    steps: list[dict] = Field(min_length=1, max_length=16)
